@@ -1,0 +1,15 @@
+# Binaries
+engine
+data_gen
+gen
+
+# Data files
+*.bin
+
+# Object files
+*.o
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
