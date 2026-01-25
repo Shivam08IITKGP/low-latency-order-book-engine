@@ -26,10 +26,10 @@ Example output with 100,000 messages:
 ```text
 ---------------- Performance Summary ----------------
 Processed messages: 100000
-Total time: 15432 us
-Average Latency: 154 ns
-P50 Latency: 120 ns
-P99 Latency: 450 ns
+Total time: 24508 us
+Average Latency: 157 ns
+P50 Latency: 89 ns
+P99 Latency: 188 ns
 -----------------------------------------------------
 ```
 
