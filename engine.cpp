@@ -3,15 +3,14 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "common.h"
 #include <map> // We use std::map for now (Red-Black Tree) to keep orders sorted
+// Search, Insert, Delete -> all O(logN), in heap, the searching is O(N)
 #include <chrono>
 #include <vector>
 #include <numeric>
 #include <algorithm>
-
-#include <map>
 #include <unordered_map>
+#include "common.h"
 
 class OrderBook {
     // 1. The "View" (For printing Top 10)
@@ -24,13 +23,14 @@ class OrderBook {
     struct OrderInfo {
         uint64_t price;
         uint32_t quantity;
-        char side;
+        char side; // 'B' or 'S'
     };
     std::unordered_map<uint64_t, OrderInfo> order_lookup;
 
 public:
     // --- HANDLING NEW ORDERS ('N') ---
-    void addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity) {
+    void addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity) 
+    {
         // A. Store in Lookup (So we can find it later)
         order_lookup[id] = {price, quantity, side};
 
@@ -40,7 +40,8 @@ public:
     }
 
     // --- HANDLING CANCELLATIONS ('X') ---
-    void cancelOrder(uint64_t id) {
+    void cancelOrder(uint64_t id) 
+    {
         // 1. Find the order
         auto it = order_lookup.find(id);
         if (it == order_lookup.end()) return; // Order not found (maybe already traded)
@@ -49,10 +50,13 @@ public:
         OrderInfo& info = it->second;
 
         // 3. Remove quantity from the Price Level
-        if (info.side == 'B') {
+        if (info.side == 'B') 
+        {
             bids[info.price] -= info.quantity;
             if (bids[info.price] == 0) bids.erase(info.price); // Clean up empty levels
-        } else {
+        } 
+        else 
+        {
             asks[info.price] -= info.quantity;
             if (asks[info.price] == 0) asks.erase(info.price);
         }
@@ -64,9 +68,11 @@ public:
     // --- HANDLING TRADES ('T') ---
     // A trade means TWO orders matched (Buy ID and Sell ID). 
     // We must reduce the quantity for BOTH.
-    void executeTrade(uint64_t buy_id, uint64_t sell_id, uint32_t qty) {
-        // Reduce/Remove the Buy Order
-        if (order_lookup.count(buy_id)) {
+    void executeTrade(uint64_t buy_id, uint64_t sell_id, uint32_t qty) 
+    {
+        if(order_lookup.count(buy_id) && order_lookup.count(sell_id))
+        {
+            // Reduce/Remove the Buy Order
             OrderInfo& info = order_lookup[buy_id];
             
             // Decrease quantity in the Book
@@ -75,22 +81,23 @@ public:
             
             // Decrease quantity in the Order
             info.quantity -= qty;
-            if (info.quantity == 0) order_lookup.erase(buy_id); // Filled completely
-        }
+            if (info.quantity == 0) order_lookup.erase(buy_id); // Filled completely        
 
-        // Reduce/Remove the Sell Order
-        if (order_lookup.count(sell_id)) {
+            // Reduce/Remove the Sell Order
             OrderInfo& info = order_lookup[sell_id];
             
+            // Decrease quantity in the Book
             asks[info.price] -= qty;
             if (asks[info.price] == 0) asks.erase(info.price);
-            
+
+            // Decrease quantity in the Order
             info.quantity -= qty;
             if (info.quantity == 0) order_lookup.erase(sell_id);
         }
     }
 
-    void printTopOfBook() {
+    void printTopOfBook() 
+    {
         std::cout << "   [BOOK] ";
         if (bids.empty()) std::cout << "Bids: -";
         else std::cout << "Bid: " << bids.begin()->second << " @ " << bids.begin()->first;
@@ -143,15 +150,12 @@ int main() {
 
         char* payload = file_memory + offset + sizeof(StreamHeader);
 
-        // std::cout << "Seq: " << header->seq_no << " | Type: " << msgType << " | Len: " << header->msg_len << "\n";
-
         switch (msgType)
         {
             case 'T':
             {
                 TradeMessage* t = reinterpret_cast<TradeMessage*>(payload);
                 orderBook.executeTrade(t->buy_order_id, t->sell_order_id, t->quantity);
-                // std::cout << "   [TRADE] " << t->quantity << " @ " << t->price << "\n";
                 break;
             }
             case 'N':
@@ -174,20 +178,6 @@ int main() {
                 break;
             }
         }
-
-
-        // if (msgType == 'T') 
-        // {
-        //     TradeMessage* t = reinterpret_cast<TradeMessage*>(file_memory + offset);
-        //     orderBook.executeTrade(t->buy_order_id, t->sell_order_id, t->quantity);
-        //     std::cout << "   [TRADE] " << t->quantity << " @ " << t->price << "\n";
-        // } 
-        // else 
-        // {
-        //     OrderMessage* o = reinterpret_cast<OrderMessage*>(file_memory + offset);
-        //     orderBook.addOrder(o->order_id, o->side, o->price, o->quantity);
-        // }
-        // orderBook.printTopOfBook();
 
         // Jump to next message
         offset += header->msg_len + sizeof(StreamHeader);
