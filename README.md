@@ -21,16 +21,18 @@ The engine processes a binary stream of market data. Each message consists of a 
 
 ## Performance Summary
 
-Example output with 100,000 messages:
+Benchmark results with 100,000 messages:
 
 ```text
 ---------------- Performance Summary ----------------
-Processed messages: 100000
-Total time: 24508 us
-Average Latency: 157 ns
-P50 Latency: 89 ns
-P99 Latency: 188 ns
+Processed messages: 100001
+Total time: 6820 us
+Average Latency: 27.351 ns
+P50 Latency: 21 ns
+P99 Latency: 45 ns
 -----------------------------------------------------
+Final Book Size -> Bids: 100001 | Asks: 100001
+Total Traded Volume = 50
 ```
 
 _(Note: Latency varies based on hardware and CPU pinning)_

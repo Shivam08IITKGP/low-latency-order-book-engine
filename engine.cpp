@@ -3,7 +3,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <map>              // Previously considered for price levels (RB-tree, O(logN))
+#include <map> // Previously considered for price levels (RB-tree, O(logN))
 #include <chrono>
 #include <vector>
 #include <numeric>
