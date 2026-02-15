@@ -13,7 +13,7 @@ struct StreamHeader {
 // 2. The Message Body (The "STREAM_DATA")
 struct OrderMessage {
     char type;        // 'N' (New), 'M' (Modify), 'X' (Cancel)
-    uint64_t order_id;
+    uint64_t order_id; // REMOVED std::atomic
     char side;        // 'B' (Buy) or 'S' (Sell)
     uint32_t quantity;
     uint64_t price;   // Using uint64_t for price (in cents/ticks) is standard to avoid float errors
@@ -21,8 +21,8 @@ struct OrderMessage {
 
 struct TradeMessage {
     char type;        // 'T' (Trade)
-    uint64_t buy_order_id;
-    uint64_t sell_order_id;
+    uint64_t buy_order_id;  // REMOVED std::atomic
+    uint64_t sell_order_id; // REMOVED std::atomic
     uint32_t quantity;
     uint64_t price;
 } __attribute__((packed));
