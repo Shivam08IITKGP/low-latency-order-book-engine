@@ -150,21 +150,17 @@ inline void cpu_pause()
 }
 
 // --------------------------------------------------------------------
-// RDTSC - Read CPU Time Stamp Counter with Memory Fencing
+// RDTSC - Read CPU Time Stamp Counter with Serialization
 // --------------------------------------------------------------------
-// Memory fencing prevents out-of-order execution from reordering rdtsc
-// with surrounding instructions. Critical for accurate timing.
-//
-// lfence: Load fence - ensures all prior loads complete before rdtsc
-// sfence: Store fence - ensures all stores complete before subsequent rdtsc
+// Prevents out-of-order execution from reordering measurements
+// Start: lfence + rdtsc + lfence (~6ns)
+// End: rdtscp (~3ns, built-in serialization)
 inline uint64_t rdtsc_start()
 {
 #if defined(__x86_64__) || defined(_M_X64)
     unsigned int lo, hi;
-    // Serialize: ensure all prior instructions complete before reading TSC
     _mm_lfence();
     __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    // Prevent subsequent instructions from executing before TSC read
     _mm_lfence();
     return ((uint64_t)hi << 32) | lo;
 #else
@@ -176,10 +172,10 @@ inline uint64_t rdtsc_start()
 inline uint64_t rdtsc_end()
 {
 #if defined(__x86_64__) || defined(_M_X64)
-    unsigned int lo, hi;
-    // Ensure all work completes before reading TSC
-    _mm_lfence();
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    unsigned int lo, hi, aux;
+    // RDTSCP: Serializing read - waits for all prior instructions to complete
+    // No lfence needed - instruction is inherently serializing
+    __asm__ __volatile__ ("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
     return ((uint64_t)hi << 32) | lo;
 #else
     return std::chrono::high_resolution_clock::now()
@@ -795,11 +791,11 @@ int main()
     uint32_t messageCount = 0;
     LatencyHistogram histogram(10); // 10ns buckets
     
-    // TIMING: RDTSC with memory fencing
-    // rdtsc_start(): lfence + rdtsc + lfence (~4-6ns)
-    // rdtsc_end(): lfence + rdtsc (~3-5ns)
-    // Memory fences prevent CPU out-of-order execution
-    // Ensures accurate measurement of actual work done
+    // TIMING: RDTSC + RDTSCP for minimal overhead
+    // Start: lfence + rdtsc + lfence (~6ns)
+    // End: rdtscp (serializing, ~3ns)
+    // RDTSCP waits for all instructions to complete before reading TSC
+    // Total overhead: ~9ns per message (vs ~20ns for chrono)
     
     uint64_t totalStart = rdtsc_start();
 
@@ -901,7 +897,7 @@ int main()
     std::cout << "Processed messages: " << messageCount << "\n";
     std::cout << "Total time: " << totalDuration_us << " us\n";
     std::cout << "Throughput: " << (messageCount * 1000000.0 / totalDuration_us) << " msgs/sec\n";
-    std::cout << "Timing Method: RDTSC with memory fencing (lfence)";
+    std::cout << "Timing Method: RDTSC (start) + RDTSCP (end)\n";
     std::cout << "CPU Frequency: " << std::fixed << std::setprecision(2) 
               << (g_cycles_per_ns * 1000.0) << " MHz\n";
     std::cout << "====================================================\n";
