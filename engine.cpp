@@ -17,6 +17,7 @@
 #include <pthread.h>
 #include <iomanip>
 #include <xmmintrin.h> // For _mm_lfence() memory fence intrinsic
+#include <array>
 #include "common.h"
 
 /*
@@ -53,38 +54,63 @@ struct UpdateMessage
 template<typename T, size_t Size>
 class RingBuffer
 {
+    // Ensure Size is a power of 2 for bitwise optimization
+    static_assert((Size != 0) && ((Size & (Size - 1)) == 0), "Size must be a power of 2");
+
 private:
     alignas(64) T buffer[Size];
-    alignas(64) std::atomic<size_t> write_idx{0};
-    alignas(64) std::atomic<size_t> read_idx{0};
     
+    // Producer-exclusive variables (Core 2)
+    alignas(64) std::atomic<size_t> write_idx{0};
+    size_t cached_read_idx{0}; // Lives in Core 2's L1 cache
+    
+    // Consumer-exclusive variables (Core 3)
+    alignas(64) std::atomic<size_t> read_idx{0};
+    size_t cached_write_idx{0}; // Lives in Core 3's L1 cache
+    
+    // Bitmask for fast modulo (e.g., 1048576 - 1 = 1048575)
+    static constexpr size_t MASK = Size - 1;
+
 public:
-    // Try to push a message (returns false if buffer is full)
     bool push(const T& msg)
     {
         size_t current_write = write_idx.load(std::memory_order_relaxed);
-        size_t next_write = (current_write + 1) % Size;
+        // Bitwise AND is significantly faster than modulo (%)
+        size_t next_write = (current_write + 1) & MASK; 
         
-        // Check if buffer is full
-        if (next_write == read_idx.load(std::memory_order_acquire))
-            return false;
+        // 1. Fast path: Check against our private, cached copy of read_idx
+        if (next_write == cached_read_idx)
+        {
+            // 2. Slow path: We MIGHT be full. Go fetch the actual atomic read_idx from Core 3
+            cached_read_idx = read_idx.load(std::memory_order_acquire);
+            
+            // 3. Are we actually full?
+            if (next_write == cached_read_idx)
+                return false; 
+        }
         
         buffer[current_write] = msg;
         write_idx.store(next_write, std::memory_order_release);
         return true;
     }
     
-    // Try to pop a message (returns false if buffer is empty)
     bool pop(T& msg)
     {
         size_t current_read = read_idx.load(std::memory_order_relaxed);
         
-        // Check if buffer is empty
-        if (current_read == write_idx.load(std::memory_order_acquire))
-            return false;
+        // 1. Fast path: Check against our private, cached copy of write_idx
+        if (current_read == cached_write_idx)
+        {
+            // 2. Slow path: We MIGHT be empty. Go fetch the actual atomic write_idx from Core 2
+            cached_write_idx = write_idx.load(std::memory_order_acquire);
+            
+            // 3. Are we actually empty?
+            if (current_read == cached_write_idx)
+                return false; 
+        }
         
         msg = buffer[current_read];
-        read_idx.store((current_read + 1) % Size, std::memory_order_release);
+        read_idx.store((current_read + 1) & MASK, std::memory_order_release);
         return true;
     }
     
@@ -398,8 +424,8 @@ class OrderBook
     // --------------------------------------------------------------------
     // bids[price] = total bid quantity at that price
     // asks[price] = total ask quantity at that price
-    std::vector<uint32_t> bids;
-    std::vector<uint32_t> asks;
+    std::array<uint32_t, MAX_PRICE + 1> bids{};
+    std::array<uint32_t, MAX_PRICE + 1> asks{};
 
     // Track current best bid and best ask
     uint64_t max_bid_price = 0;
@@ -409,8 +435,8 @@ class OrderBook
     // Each bit represents a price level that has orders
     // __builtin_ctzll finds the first set bit in O(1) / 1 clock cycle
     static constexpr size_t BITMAP_SIZE = (MAX_PRICE + 64) / 64;
-    std::vector<uint64_t> bid_bitmap;
-    std::vector<uint64_t> ask_bitmap;
+    std::array<uint64_t, BITMAP_SIZE> bid_bitmap{};
+    std::array<uint64_t, BITMAP_SIZE> ask_bitmap{};
     
     // Helper: Set bit for price level (mark as occupied)
     inline void set_bid_level(uint64_t price)
@@ -513,7 +539,7 @@ class OrderBook
     };
 
     // Direct indexing by Order ID (O(1))
-    std::vector<OrderInfo> order_lookup;
+    std::array<OrderInfo, 1000001> order_lookup{};
 
     // Total traded volume accumulator
     uint64_t total_traded_volume;
@@ -521,17 +547,8 @@ class OrderBook
 public:
     OrderBook()
     {
-        // Pre-allocate space for up to 1M orders
-        order_lookup.resize(1000001);
-
-        // Allocate full price range
-        bids.resize(MAX_PRICE + 1);
-        asks.resize(MAX_PRICE + 1);
-        
-        // Initialize bitmaps for branch-free best bid/ask tracking
-        bid_bitmap.resize(BITMAP_SIZE, 0);
-        ask_bitmap.resize(BITMAP_SIZE, 0);
-
+        // All arrays are pre-allocated at compile-time with std::array
+        // std::array provides zero-initialization with {} syntax
         total_traded_volume = 0;
     }
 
