@@ -405,6 +405,103 @@ class OrderBook
     uint64_t max_bid_price = 0;
     uint64_t min_ask_price = MAX_PRICE + 1;
 
+    // BITMAP OPTIMIZATION: Eliminate branch misprediction in best bid/ask search
+    // Each bit represents a price level that has orders
+    // __builtin_ctzll finds the first set bit in O(1) / 1 clock cycle
+    static constexpr size_t BITMAP_SIZE = (MAX_PRICE + 64) / 64;
+    std::vector<uint64_t> bid_bitmap;
+    std::vector<uint64_t> ask_bitmap;
+    
+    // Helper: Set bit for price level (mark as occupied)
+    inline void set_bid_level(uint64_t price)
+    {
+        size_t idx = price / 64;
+        size_t bit = price % 64;
+        bid_bitmap[idx] |= (1ULL << bit);
+    }
+    
+    inline void set_ask_level(uint64_t price)
+    {
+        size_t idx = price / 64;
+        size_t bit = price % 64;
+        ask_bitmap[idx] |= (1ULL << bit);
+    }
+    
+    // Helper: Clear bit for price level (mark as empty)
+    inline void clear_bid_level(uint64_t price)
+    {
+        size_t idx = price / 64;
+        size_t bit = price % 64;
+        bid_bitmap[idx] &= ~(1ULL << bit);
+    }
+    
+    inline void clear_ask_level(uint64_t price)
+    {
+        size_t idx = price / 64;
+        size_t bit = price % 64;
+        ask_bitmap[idx] &= ~(1ULL << bit);
+    }
+    
+    // Helper: Find next best ask (lowest price with orders)
+    // Uses __builtin_ctzll for O(1) bit scanning
+    inline uint64_t find_next_ask(uint64_t start_price)
+    {
+        for (uint64_t price = start_price; price <= MAX_PRICE; price++)
+        {
+            size_t idx = price / 64;
+            size_t bit = price % 64;
+            
+            // Mask off bits below current price
+            uint64_t masked = ask_bitmap[idx] & (~0ULL << bit);
+            if (masked)
+            {
+                // Found a set bit in this block
+                return idx * 64 + __builtin_ctzll(masked);
+            }
+            
+            // Move to next block, check all bits
+            for (size_t i = idx + 1; i < BITMAP_SIZE; i++)
+            {
+                if (ask_bitmap[i])
+                {
+                    return i * 64 + __builtin_ctzll(ask_bitmap[i]);
+                }
+            }
+            return MAX_PRICE + 1; // No price level found
+        }
+        return MAX_PRICE + 1;
+    }
+    
+    // Helper: Find next best bid (highest price with orders)
+    // Scans downward, uses __builtin_clzll for highest set bit
+    inline uint64_t find_next_bid(uint64_t start_price)
+    {
+        for (int64_t price = start_price; price >= 0; price--)
+        {
+            size_t idx = price / 64;
+            size_t bit = price % 64;
+            
+            // Mask off bits above current price
+            uint64_t masked = bid_bitmap[idx] & ((1ULL << (bit + 1)) - 1);
+            if (masked)
+            {
+                // Found a set bit in this block: locate highest set bit
+                return idx * 64 + (63 - __builtin_clzll(masked));
+            }
+            
+            // Move to previous block, check all bits
+            for (int64_t i = idx - 1; i >= 0; i--)
+            {
+                if (bid_bitmap[i])
+                {
+                    return i * 64 + (63 - __builtin_clzll(bid_bitmap[i]));
+                }
+            }
+            return 0; // No price level found
+        }
+        return 0;
+    }
+
     // --------------------------------------------------------------------
     // 2. ORDER LOOKUP TABLE (OrderID -> OrderInfo)
     // --------------------------------------------------------------------
@@ -430,6 +527,10 @@ public:
         // Allocate full price range
         bids.resize(MAX_PRICE + 1);
         asks.resize(MAX_PRICE + 1);
+        
+        // Initialize bitmaps for branch-free best bid/ask tracking
+        bid_bitmap.resize(BITMAP_SIZE, 0);
+        ask_bitmap.resize(BITMAP_SIZE, 0);
 
         total_traded_volume = 0;
     }
@@ -446,11 +547,13 @@ public:
         if (side == 'B')
         {
             bids[price] += quantity;
+            set_bid_level(price);  // Mark price level as occupied in bitmap
             max_bid_price = std::max(price, max_bid_price);
         }
         else
         {
             asks[price] += quantity;
+            set_ask_level(price);  // Mark price level as occupied in bitmap
             min_ask_price = std::min(price, min_ask_price);
         }
         
@@ -478,20 +581,34 @@ public:
         if (info.side == 'B')
         {
             bids[info.price] -= info.quantity;
-
-            // Recompute best bid if needed
-            if (info.price == max_bid_price && bids[info.price] == 0)
-                while (max_bid_price > 0 && bids[max_bid_price] == 0)
-                    max_bid_price--;
+            
+            // If price level is now empty, clear the bitmap bit (no branch misprediction)
+            if (bids[info.price] == 0)
+            {
+                clear_bid_level(info.price);
+                
+                // Update best bid only if we cleared the current best price
+                if (info.price == max_bid_price)
+                {
+                    max_bid_price = find_next_bid(max_bid_price - 1);
+                }
+            }
         }
         else
         {
             asks[info.price] -= info.quantity;
-
-            // Recompute best ask if needed
-            if (info.price == min_ask_price && asks[info.price] == 0)
-                while (min_ask_price <= MAX_PRICE && asks[min_ask_price] == 0)
-                    min_ask_price++;
+            
+            // If price level is now empty, clear the bitmap bit
+            if (asks[info.price] == 0)
+            {
+                clear_ask_level(info.price);
+                
+                // Update best ask only if we cleared the current best price
+                if (info.price == min_ask_price)
+                {
+                    min_ask_price = find_next_ask(min_ask_price + 1);
+                }
+            }
         }
 
         // Publish to ring buffer (fast rdtsc)
@@ -516,21 +633,28 @@ public:
             bids[buy_info.price] -= qty;
             buy_info.quantity -= qty;
 
-            if (buy_info.price == max_bid_price &&
-                bids[buy_info.price] == 0)
-                while (max_bid_price > 0 && bids[max_bid_price] == 0)
-                    max_bid_price--;
+            if (bids[buy_info.price] == 0)
+            {
+                clear_bid_level(buy_info.price);
+                if (buy_info.price == max_bid_price)
+                {
+                    max_bid_price = find_next_bid(max_bid_price - 1);
+                }
+            }
 
             // ----- SELL SIDE -----
             OrderInfo &sell_info = order_lookup[sell_id];
             asks[sell_info.price] -= qty;
             sell_info.quantity -= qty;
 
-            if (sell_info.price == min_ask_price &&
-                asks[sell_info.price] == 0)
-                while (min_ask_price <= MAX_PRICE &&
-                       asks[min_ask_price] == 0)
-                    min_ask_price++;
+            if (asks[sell_info.price] == 0)
+            {
+                clear_ask_level(sell_info.price);
+                if (sell_info.price == min_ask_price)
+                {
+                    min_ask_price = find_next_ask(min_ask_price + 1);
+                }
+            }
 
             total_traded_volume += qty;
             
@@ -586,19 +710,29 @@ public:
             {
                 bids[info.price] -= qty_decrease;
                 
-                // Recompute best bid if level is now empty
-                if (info.price == max_bid_price && bids[info.price] == 0)
-                    while (max_bid_price > 0 && bids[max_bid_price] == 0)
-                        max_bid_price--;
+                // Recompute best bid using bitmap if this level is now empty
+                if (bids[info.price] == 0)
+                {
+                    clear_bid_level(info.price);
+                    if (info.price == max_bid_price)
+                    {
+                        max_bid_price = find_next_bid(max_bid_price - 1);
+                    }
+                }
             }
             else
             {
                 asks[info.price] -= qty_decrease;
                 
-                // Recompute best ask if level is now empty
-                if (info.price == min_ask_price && asks[info.price] == 0)
-                    while (min_ask_price <= MAX_PRICE && asks[min_ask_price] == 0)
-                        min_ask_price++;
+                // Recompute best ask using bitmap if this level is now empty
+                if (asks[info.price] == 0)
+                {
+                    clear_ask_level(info.price);
+                    if (info.price == min_ask_price)
+                    {
+                        min_ask_price = find_next_ask(min_ask_price + 1);
+                    }
+                }
             }
             
             // Update order quantity in place - maintains queue position!
@@ -614,6 +748,7 @@ public:
 
     // --------------------------------------------------------------------
     // MARKET ORDER - Crosses the spread and walks the book
+    // Bitmap-optimized to eliminate branch misprediction in price level scan
     // --------------------------------------------------------------------
     void executeMarketOrder(char side, uint32_t quantity)
     {
@@ -640,10 +775,13 @@ public:
                 updateBuffer.push(msg);
                 
                 // Update best ask if this level is depleted
-                if (asks[price] == 0 && price == min_ask_price)
+                if (asks[price] == 0)
                 {
-                    while (min_ask_price <= MAX_PRICE && asks[min_ask_price] == 0)
-                        min_ask_price++;
+                    clear_ask_level(price);
+                    if (price == min_ask_price)
+                    {
+                        min_ask_price = find_next_ask(min_ask_price + 1);
+                    }
                 }
             }
             
@@ -676,10 +814,13 @@ public:
                 updateBuffer.push(msg);
                 
                 // Update best bid if this level is depleted
-                if (bids[price] == 0 && price == max_bid_price)
+                if (bids[price] == 0)
                 {
-                    while (max_bid_price > 0 && bids[max_bid_price] == 0)
-                        max_bid_price--;
+                    clear_bid_level(price);
+                    if (price == max_bid_price)
+                    {
+                        max_bid_price = find_next_bid(max_bid_price - 1);
+                    }
                 }
             }
             
