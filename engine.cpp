@@ -9,6 +9,7 @@
 #include <vector>
 #include <numeric>
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <thread>
 #include <atomic>
@@ -122,9 +123,11 @@ public:
 
     void pre_fault_memory() 
     {
-        // Touch one byte in every 4KB page to trigger the OS page fault now
+        // Touch one element per 4KB page to force OS to allocate physical memory
+        // This eliminates page faults during hot path execution
         const size_t page_size = 4096;
-        for (size_t i = 0; i < Size; i += (page_size / sizeof(T)) + 1) 
+        // Stride = elements per page (no +1! That skips pages)
+        for (size_t i = 0; i < Size; i += page_size / sizeof(T)) 
         {
             buffer[i] = T(); 
         }
@@ -136,16 +139,20 @@ RingBuffer<UpdateMessage, 1048576> updateBuffer;
 std::atomic<bool> stopPublisher{false};
 
 // --------------------------------------------------------------------
-// SPSC INPUT QUEUE for lock-free communication between threads
+// ZERO-COPY PACKET VIEW for lock-free communication between threads
 // --------------------------------------------------------------------
-struct InputMessage
+// In production HFT: NIC streams packets directly into user-space ring buffer via DMA
+// Engine reads pointer to packet, never copies payload
+// Benefits: 16 bytes (pointer view) vs 136 bytes (full copy)
+// Result: 4 messages fit in single 64-byte cache line, 8.5x less interconnect traffic
+struct PacketView
 {
-    StreamHeader header;
-    char payload[128]; // Enough for any message type
+    const char* payload; // Direct pointer to mmap file / DMA buffer (zero-copy!)
+    char msg_type;       // Cached type for immediate switch() branching
 };
 
 // Input queue: Network thread produces, Engine thread consumes
-RingBuffer<InputMessage, 524288> inputQueue;
+RingBuffer<PacketView, 524288> inputQueue;
 std::atomic<bool> stopNetworkThread{false};
 std::atomic<bool> stopEngine{false};  // Signal engine to stop after network is done
 
@@ -416,6 +423,85 @@ public:
         std::cout << "=====================================\n";
     }
 };
+
+// Zero-overhead latency recorder: flat pre-allocated buffer written from hot path
+class LatencyRecorder
+{
+private:
+    struct alignas(16) Sample { uint64_t latency_ns; uint32_t index; char type; };
+    static constexpr size_t MAX_SAMPLES = 200000;
+    std::array<Sample, MAX_SAMPLES> samples{}; // BSS/stack pre-allocated
+    size_t count = 0;
+
+public:
+    // Inline, zero-branch hot-path write
+    inline void addSample(uint64_t latency_ns, char type, uint32_t index)
+    {
+        samples[count++] = {latency_ns, index, type};
+    }
+
+    void printReport() const
+    {
+        if (count == 0) return;
+
+        uint64_t spikes_over_1us = 0;
+        uint64_t spikes_over_10us = 0;
+        uint64_t spikes_over_100us = 0;
+
+        std::vector<uint64_t> vals; vals.reserve(count);
+        uint64_t sum = 0;
+        for (size_t i = 0; i < count; ++i)
+        {
+            uint64_t v = samples[i].latency_ns;
+            vals.push_back(v);
+            sum += v;
+            if (v > 1000) spikes_over_1us++;
+            if (v > 10000) spikes_over_10us++;
+            if (v > 100000) spikes_over_100us++;
+        }
+
+        double mean = static_cast<double>(sum) / count;
+        double var = 0.0;
+        for (auto v : vals) { double d = static_cast<double>(v) - mean; var += d * d; }
+        var /= count;
+        double stddev = std::sqrt(var);
+
+        std::sort(vals.begin(), vals.end());
+        auto pct = [&](double p)->uint64_t {
+            size_t idx = static_cast<size_t>(std::ceil((p / 100.0) * count)) - 1;
+            if (idx >= vals.size()) idx = vals.size() - 1;
+            return vals[idx];
+        };
+
+        uint64_t p50 = pct(50.0);
+        uint64_t p90 = pct(90.0);
+        uint64_t p99 = pct(99.0);
+        uint64_t p999 = pct(99.9);
+
+        std::cout << "\n========== DETAILED LATENCY REPORT ==========" << std::endl;
+        std::cout << "Samples: " << count << "\n";
+        std::cout << "Mean: " << static_cast<uint64_t>(mean) << " ns  StdDev: " << static_cast<uint64_t>(stddev) << " ns\n";
+        std::cout << "P50: " << p50 << " ns  P90: " << p90 << " ns  P99: " << p99 << " ns  P99.9: " << p999 << " ns\n";
+        std::cout << "Spikes >1us: " << spikes_over_1us << "  >10us: " << spikes_over_10us << "  >100us: " << spikes_over_100us << "\n";
+
+        // Top spikes
+        std::vector<size_t> idxs(count);
+        for (size_t i = 0; i < count; ++i) idxs[i] = i;
+        std::partial_sort(idxs.begin(), idxs.begin() + std::min<size_t>(10, idxs.size()), idxs.end(),
+            [&](size_t a, size_t b) { return samples[a].latency_ns > samples[b].latency_ns; });
+
+        std::cout << "Top spikes (latency ns, sample index, msg type):\n";
+        for (size_t i = 0; i < std::min<size_t>(10, idxs.size()); ++i)
+        {
+            const auto &s = samples[idxs[i]];
+            std::cout << "  " << s.latency_ns << " ns, idx=" << s.index << ", type=" << s.type << "\n";
+        }
+
+        std::cout << "============================================" << std::endl;
+    }
+};
+
+static LatencyRecorder g_latency_recorder;
 
 class OrderBook
 {
@@ -761,6 +847,30 @@ public:
         }
         
         // CASE 4: Quantity unchanged -> No-op
+
+    }
+    
+    // pre-fault memory
+    void pre_fault_memory()
+    {
+        // Touch one element per 4KB page to force OS to allocate physical memory
+        // This eliminates page faults during hot path execution
+        const size_t page_size = 4096;
+        
+        // Stride = elements per page (no +1! That skips pages)
+        for (size_t i = 0; i < order_lookup.size(); i += page_size / sizeof(OrderInfo)) {
+            order_lookup[i].quantity = 0; 
+        }
+        
+        for (size_t i = 0; i < bids.size(); i += page_size / sizeof(uint32_t)) {
+            bids[i] = 0;
+            asks[i] = 0;
+        }
+        
+        for (size_t i = 0; i < bid_bitmap.size(); i += page_size / sizeof(uint64_t)) {
+            bid_bitmap[i] = 0;
+            ask_bitmap[i] = 0;
+        }
     }
 
     // --------------------------------------------------------------------
@@ -867,36 +977,37 @@ public:
 OrderBook orderBook;
 
 // --------------------------------------------------------------------
-// NETWORK THREAD - Produces messages (simulates receiving from network)
+// NETWORK THREAD - Zero-copy packet producer (simulates DMA NIC)
 // --------------------------------------------------------------------
+// Production HFT: NIC writes packets directly to ring buffer via DMA
+// Engine reads pointer, never copies payload → eliminates memcpy overhead
 void networkThread(char* file_memory, size_t file_size)
 {
     // Pin to Core 0
     pinThreadToCore(0);
     
-    std::cout << "[NETWORK] Thread started\n";
+    std::cout << "[NETWORK] Thread started (zero-copy mode)\n";
     
     size_t offset = 0;
     
     while (offset < file_size && !stopNetworkThread.load(std::memory_order_acquire))
     {
-        // Parse message from file
+        // Read header to get message length
         StreamHeader *header = reinterpret_cast<StreamHeader *>(file_memory + offset);
-        size_t msg_total_size = sizeof(StreamHeader) + header->msg_len;
         
-        // Create input message
-        InputMessage input_msg;
-        input_msg.header = *header;
-        memcpy(input_msg.payload, file_memory + offset + sizeof(StreamHeader), header->msg_len);
+        // Create zero-copy packet view (no memcpy!)
+        PacketView view;
+        view.msg_type = *(file_memory + offset + sizeof(StreamHeader)); // Peek at first byte
+        view.payload = file_memory + offset + sizeof(StreamHeader);      // Point to data
         
-        // Push to input queue (lock-free)
-        while (!inputQueue.push(input_msg))
+        // Push lightweight view to queue (16 bytes vs 136 bytes)
+        while (!inputQueue.push(view))
         {
             // Queue full, busy-wait (no context switch!)
             cpu_pause();
         }
         
-        offset += msg_total_size;
+        offset += sizeof(StreamHeader) + header->msg_len;
     }
     
     // Signal engine thread that we're done producing
@@ -1028,6 +1139,7 @@ int main()
     
     updateBuffer.pre_fault_memory();
     inputQueue.pre_fault_memory();
+    orderBook.pre_fault_memory();
 
     // Warmup phase to prime CPU caches and branch predictors
     std::cout << "Warming up caches...\n";
@@ -1055,17 +1167,18 @@ int main()
     uint64_t totalStart = rdtsc_start();
 
     // Process until network thread signals completion and queue is drained
+    // ZERO-COPY: Cast directly from pointer, eliminate memcpy overhead
     while (true)
     {
-        InputMessage input_msg;
+        PacketView view;
         
         // Try to pop from input queue (lock-free)
-        if (!inputQueue.pop(input_msg))
+        if (!inputQueue.pop(view))
         {
             if (stopEngine.load(std::memory_order_acquire))
             {
                 // Double-check to ensure nothing slipped in before the flag was raised
-                if (!inputQueue.pop(input_msg)) 
+                if (!inputQueue.pop(view)) 
                 {
                     break; 
                 }
@@ -1079,16 +1192,13 @@ int main()
         
         uint64_t msgStart = rdtsc_start();
 
-        // First byte of payload is message type
-        char msgType = input_msg.payload[0];
-        char *payload = input_msg.payload;
-
-        switch (msgType)
+        // Cast directly from wire memory (zero copies!)
+        // In production: payload points to DMA buffer written by NIC hardware
+        switch (view.msg_type)
         {
         case 'T':
         {
-            TradeMessage *t =
-                reinterpret_cast<TradeMessage *>(payload);
+            const TradeMessage *t = reinterpret_cast<const TradeMessage *>(view.payload);
             orderBook.executeTrade(
                 t->buy_order_id,
                 t->sell_order_id,
@@ -1097,8 +1207,7 @@ int main()
         }
         case 'N':
         {
-            OrderMessage *o =
-                reinterpret_cast<OrderMessage *>(payload);
+            const OrderMessage *o = reinterpret_cast<const OrderMessage *>(view.payload);
             orderBook.addOrder(
                 o->order_id,
                 o->side,
@@ -1108,15 +1217,13 @@ int main()
         }
         case 'X':
         {
-            OrderMessage *o =
-                reinterpret_cast<OrderMessage *>(payload);
+            const OrderMessage *o = reinterpret_cast<const OrderMessage *>(view.payload);
             orderBook.cancelOrder(o->order_id);
             break;
         }
         case 'M': // Modify with smart priority preservation
         {
-            OrderMessage *o =
-                reinterpret_cast<OrderMessage *>(payload);
+            const OrderMessage *o = reinterpret_cast<const OrderMessage *>(view.payload);
             orderBook.modifyOrder(
                 o->order_id,
                 o->side,
@@ -1126,8 +1233,7 @@ int main()
         }
         case 'K': // Market Order (new message type)
         {
-            OrderMessage *o =
-                reinterpret_cast<OrderMessage *>(payload);
+            const OrderMessage *o = reinterpret_cast<const OrderMessage *>(view.payload);
             orderBook.executeMarketOrder(o->side, o->quantity);
             break;
         }
@@ -1138,6 +1244,8 @@ int main()
         uint64_t latency_cycles = msgEnd - msgStart;
         uint64_t latency_ns = cycles_to_ns(latency_cycles);
         histogram.addSample(latency_ns);
+        // Record detailed sample for post-run analysis (store msg type and index)
+        g_latency_recorder.addSample(latency_ns, view.msg_type, messageCount);
 
         messageCount++;
     }
@@ -1160,6 +1268,8 @@ int main()
     // Print histogram and jitter analysis
     histogram.printHistogram();
     histogram.printJitterAnalysis();
+    // Print detailed latency recorder report
+    g_latency_recorder.printReport();
 
     std::cout << "Final Book Size -> Bids: "
               << orderBook.getBidsSize()
