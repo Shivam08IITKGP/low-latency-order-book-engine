@@ -617,14 +617,19 @@ class OrderBook
     // --------------------------------------------------------------------
     // 2. ORDER LOOKUP TABLE (OrderID -> OrderInfo)
     // --------------------------------------------------------------------
-    struct OrderInfo
+    // COMPACT BITFIELD DESIGN: Reduce memory footprint for better cache density
+    // Before: 16 bytes (8+4+1+3 padding) = 16MB for 1M orders
+    // After:  8 bytes (bitpacked) = 8MB for 1M orders
+    // Result: 2x more likely to stay in L3 cache, halves TLB pressure
+    struct alignas(8) OrderInfo
     {
-        uint64_t price;
-        uint32_t quantity;
-        char side; // 'B' = Buy, 'S' = Sell
+        uint64_t price    : 32; // 0 to 4,294,967,295 (plenty for MAX_PRICE=100,000)
+        uint64_t quantity : 31; // 0 to 2,147,483,647 (2 billion shares)
+        uint64_t side     : 1;  // 0='B' (Buy), 1='S' (Sell)
     };
 
     // Direct indexing by Order ID (O(1))
+    // Now only 8MB instead of 16MB!
     std::array<OrderInfo, 1000001> order_lookup{};
 
     // Total traded volume accumulator
@@ -644,7 +649,8 @@ public:
     void addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity)
     {
         // Store order details for future lookup
-        order_lookup[id] = {price, quantity, side};
+        // Convert side: 'B' -> 0, 'S' -> 1 for compact bitfield storage
+        order_lookup[id] = {price, quantity, static_cast<uint64_t>(side == 'B' ? 0 : 1)};
 
         // Update aggregated price level
         if (side == 'B')
@@ -681,7 +687,8 @@ public:
             return;
 
         // Remove quantity from price level
-        if (info.side == 'B')
+        // Bitfield side: 0='B', 1='S'
+        if (info.side == 0)
         {
             bids[info.price] -= info.quantity;
             
@@ -715,7 +722,9 @@ public:
         }
 
         // Publish to ring buffer (fast rdtsc)
-        UpdateMessage msg{ id, info.price, get_timestamp_ns(), info.quantity, 'X', info.side };
+        // Convert bitfield back to char: 0->'B', 1->'S'
+        char side_char = (info.side == 0) ? 'B' : 'S';
+        UpdateMessage msg{ id, info.price, get_timestamp_ns(), static_cast<uint32_t>(info.quantity), 'X', side_char };
         updateBuffer.push(msg);
         
         // Mark order as removed
@@ -784,10 +793,11 @@ public:
         
         uint64_t old_price = info.price;
         uint32_t old_quantity = info.quantity;
-        char old_side = info.side;
+        uint64_t old_side = info.side;  // Bitfield: 0='B', 1='S'
+        uint64_t new_side_bit = (new_side == 'B' ? 0 : 1);
         
         // CASE 1: Price changed OR Side changed -> Lose priority (Cancel + Add)
-        if (new_price != old_price || new_side != old_side)
+        if (new_price != old_price || new_side_bit != old_side)
         {
             cancelOrder(id);
             addOrder(id, new_side, new_price, new_quantity);
@@ -809,7 +819,8 @@ public:
             uint32_t qty_decrease = old_quantity - new_quantity;
             
             // Update price level
-            if (info.side == 'B')
+            // Bitfield side: 0='B', 1='S'
+            if (info.side == 0)
             {
                 bids[info.price] -= qty_decrease;
                 

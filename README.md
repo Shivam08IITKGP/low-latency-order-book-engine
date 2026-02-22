@@ -11,6 +11,7 @@ Production-grade C++ order book with zero-copy networking, lock-free threading, 
 - **Result**: Reduced cache coherency traffic between cores by 85%
 
 ### Memory & Data Structures
+- **Compact Bitfield Structs**: Compressed `OrderInfo` from 16 bytes to 8 bytes (50% memory reduction)
 - **Compile-time allocation**: Replaced `std::vector` with `std::array` for zero heap overhead
 - **Memory pre-faulting**: Touch all pages at startup to eliminate first-access page faults
 - **Zero-overhead telemetry**: Flat `std::array` buffer with inline writes (no branches in hot path)
@@ -309,11 +310,15 @@ Memory ordering guarantees:
 - Keeps L1/L2 caches warm, eliminates cold cache misses
 - Core assignment: 0 (network), 2 (engine), 3 (publisher)
 
-### 5. Compile-Time Allocation
+### 5. Compile-Time Allocation & Compact Structs
 - All data structures use `std::array` instead of `std::vector`
 - Zero heap allocations after initialization
 - No malloc/free in critical path
-- Prevents allocator contention and fragmentation
+- **Bitfield Compression**: `OrderInfo` struct compressed from 16 bytes to 8 bytes
+  - `uint64_t price : 32`
+  - `uint64_t quantity : 31`
+  - `uint64_t side : 1`
+- **Impact**: Halved memory footprint (16MB → 8MB), doubled L3 cache density, halved TLB pressure
 
 ### 6. Bitmap-Based Price Level Tracking
 - `bid_bitmap` and `ask_bitmap` track occupied price levels
