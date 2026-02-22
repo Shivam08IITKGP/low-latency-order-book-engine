@@ -1,9 +1,10 @@
 #include <iostream>
+#include <fstream>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <map> // Previously considered for price levels (RB-tree, O(logN))
+#include <map>
 #include <chrono>
 #include <vector>
 #include <numeric>
@@ -40,21 +41,22 @@ const uint64_t MAX_PRICE = 100000;
 // --------------------------------------------------------------------
 struct UpdateMessage
 {
-    char type; // 'N'=New, 'X'=Cancel, 'T'=Trade, 'M'=Modify
+    // Reordered from largest to smallest
     uint64_t order_id;
     uint64_t price;
-    uint32_t quantity;
-    char side;
     uint64_t timestamp_ns;
+    uint32_t quantity;
+    char type; // 'N'=New, 'X'=Cancel, 'T'=Trade, 'M'=Modify
+    char side;
 };
 
 template<typename T, size_t Size>
 class RingBuffer
 {
 private:
-    T buffer[Size];
-    std::atomic<size_t> write_idx{0};
-    std::atomic<size_t> read_idx{0};
+    alignas(64) T buffer[Size];
+    alignas(64) std::atomic<size_t> write_idx{0};
+    alignas(64) std::atomic<size_t> read_idx{0};
     
 public:
     // Try to push a message (returns false if buffer is full)
@@ -91,6 +93,16 @@ public:
         return read_idx.load(std::memory_order_acquire) == 
                write_idx.load(std::memory_order_acquire);
     }
+
+    void pre_fault_memory() 
+    {
+        // Touch one byte in every 4KB page to trigger the OS page fault now
+        const size_t page_size = 4096;
+        for (size_t i = 0; i < Size; i += (page_size / sizeof(T)) + 1) 
+        {
+            buffer[i] = T(); 
+        }
+    }
 };
 
 // Global ring buffer - 1M slots should handle high throughput
@@ -112,8 +124,44 @@ std::atomic<bool> stopNetworkThread{false};
 std::atomic<bool> stopEngine{false};  // Signal engine to stop after network is done
 
 // --------------------------------------------------------------------
-// CPU PINNING UTILITIES
+// CPU ISOLATION AND PINNING
 // --------------------------------------------------------------------
+// CRITICAL: Thread affinity (pthread_setaffinity_np) is NOT enough!
+//
+// pthread_setaffinity_np() tells the OS "run this thread on Core 2"
+// BUT the kernel can still interrupt Core 2 for:
+//   - Network interrupts
+//   - Timer ticks
+//   - RCU callbacks
+//   - System tasks
+//
+// PRODUCTION REQUIREMENT: Boot-level CPU isolation
+// Add to GRUB configuration (/etc/default/grub):
+//   GRUB_CMDLINE_LINUX="isolcpus=2 nohz_full=2 rcu_nocbs=2"
+//
+// What each parameter does:
+//   isolcpus=2      : Removes Core 2 from scheduler's load balancing
+//   nohz_full=2     : Disables timer ticks on Core 2 (adaptive-tick mode)
+//   rcu_nocbs=2     : Offloads RCU callbacks from Core 2 to other cores
+//
+// Then run: sudo update-grub && sudo reboot
+//
+// Expected jitter reduction: 400μs → <5μs
+
+// Check if a core is isolated from the kernel scheduler
+bool isCoreIsolated(int core_id)
+{
+    std::ifstream isolcpus("/sys/devices/system/cpu/isolated");
+    if (!isolcpus.is_open())
+        return false;
+    
+    std::string isolated;
+    std::getline(isolcpus, isolated);
+    
+    // Parse isolated cores (format: "2" or "2-3" or "2,4")
+    return isolated.find(std::to_string(core_id)) != std::string::npos;
+}
+
 bool pinThreadToCore(int core_id)
 {
     cpu_set_t cpuset;
@@ -123,11 +171,19 @@ bool pinThreadToCore(int core_id)
     int result = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     if (result != 0)
     {
-        std::cerr << "Failed to pin thread to core " << core_id << "\n";
+        std::cerr << "[ERROR] Failed to pin thread to core " << core_id << "\n";
         return false;
     }
     
-    std::cout << "[CPU] Thread pinned to core " << core_id << "\n";
+    std::cout << "[CPU] Thread pinned to core " << core_id;
+    
+    // Check if core is properly isolated for HFT workloads
+    if (!isCoreIsolated(core_id))
+    {
+        std::cout << " [WARNING: NOT ISOLATED]";
+    }
+    
+    std::cout << "\n";
     return true;
 }
 
@@ -150,18 +206,27 @@ inline void cpu_pause()
 }
 
 // --------------------------------------------------------------------
-// RDTSC - Read CPU Time Stamp Counter with Serialization
+// RDTSC/RDTSCP - Intel's Recommended Timing Sandwich
 // --------------------------------------------------------------------
-// Prevents out-of-order execution from reordering measurements
-// Start: lfence + rdtsc + lfence (~6ns)
-// End: rdtscp (~3ns, built-in serialization)
+// Industry standard pattern for accurate cycle counting:
+//   1. CPUID/LFENCE - Serialize pipeline (all prior instructions complete)
+//   2. RDTSC - Read start timestamp
+//   3. [Code to measure]
+//   4. RDTSCP - Read end timestamp (waits for measured code to finish)
+//   5. LFENCE - Ensure RDTSCP completes before subsequent code
+//
+// CPUID is fully serializing (better than LFENCE alone)
+// RDTSCP is partially serializing (waits for prior ops, not subsequent)
 inline uint64_t rdtsc_start()
 {
 #if defined(__x86_64__) || defined(_M_X64)
     unsigned int lo, hi;
-    _mm_lfence();
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    _mm_lfence();
+    // CPUID serializes: clears pipeline, waits for all prior instructions
+    __asm__ __volatile__ (
+        "cpuid\n\t"
+        "rdtsc\n\t"
+        : "=a" (lo), "=d" (hi)
+        :: "rbx", "rcx");  // CPUID clobbers rbx, rcx
     return ((uint64_t)hi << 32) | lo;
 #else
     return std::chrono::high_resolution_clock::now()
@@ -173,9 +238,26 @@ inline uint64_t rdtsc_end()
 {
 #if defined(__x86_64__) || defined(_M_X64)
     unsigned int lo, hi, aux;
-    // RDTSCP: Serializing read - waits for all prior instructions to complete
-    // No lfence needed - instruction is inherently serializing
-    __asm__ __volatile__ ("rdtscp" : "=a" (lo), "=d" (hi), "=c" (aux));
+    // RDTSCP: Waits for prior instructions, then reads TSC
+    // LFENCE: Prevents subsequent instructions from starting early
+    __asm__ __volatile__ (
+        "rdtscp\n\t"
+        "lfence\n\t"
+        : "=a" (lo), "=d" (hi), "=c" (aux));
+    return ((uint64_t)hi << 32) | lo;
+#else
+    return std::chrono::high_resolution_clock::now()
+           .time_since_epoch().count();
+#endif
+}
+
+// Fast RDTSC for timestamps in hot path (NO serialization)
+// Use this for event timestamps, NOT for measurement boundaries
+inline uint64_t rdtsc_fast()
+{
+#if defined(__x86_64__) || defined(_M_X64)
+    unsigned int lo, hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
     return ((uint64_t)hi << 32) | lo;
 #else
     return std::chrono::high_resolution_clock::now()
@@ -218,10 +300,11 @@ inline uint64_t cycles_to_ns(uint64_t cycles)
     return static_cast<uint64_t>(cycles / g_cycles_per_ns);
 }
 
-// Get timestamp in nanoseconds (for backward compatibility)
+// Get timestamp in nanoseconds (for hot path - no serialization!)
+// Uses fast rdtsc without CPUID overhead
 inline uint64_t get_timestamp_ns()
 {
-    return cycles_to_ns(rdtsc_start());
+    return cycles_to_ns(rdtsc_fast());
 }
 
 // --------------------------------------------------------------------
@@ -371,8 +454,8 @@ public:
             min_ask_price = std::min(price, min_ask_price);
         }
         
-        // Publish to ring buffer (memory-fenced rdtsc)
-        UpdateMessage msg{'N', id, price, quantity, side, get_timestamp_ns()};
+        // Publish to ring buffer (fast rdtsc, no CPUID overhead)
+        UpdateMessage msg{ id, price, get_timestamp_ns(), quantity, 'N', side };
         updateBuffer.push(msg);
     }
 
@@ -411,8 +494,8 @@ public:
                     min_ask_price++;
         }
 
-        // Publish to ring buffer before marking as removed
-        UpdateMessage msg{'X', id, info.price, info.quantity, info.side, get_timestamp_ns()};
+        // Publish to ring buffer (fast rdtsc)
+        UpdateMessage msg{ id, info.price, get_timestamp_ns(), info.quantity, 'X', info.side };
         updateBuffer.push(msg);
         
         // Mark order as removed
@@ -451,8 +534,8 @@ public:
 
             total_traded_volume += qty;
             
-            // Publish to ring buffer (NOTE: rdtsc overhead ~2-4ns)
-            UpdateMessage msg{'T', buy_id, buy_info.price, qty, 'B', get_timestamp_ns()};
+            // Publish to ring buffer (fast rdtsc ~2-4ns)
+            UpdateMessage msg{ buy_id, buy_info.price, get_timestamp_ns(), qty, 'T', 'B' };
             updateBuffer.push(msg);
         }
     }
@@ -521,8 +604,8 @@ public:
             // Update order quantity in place - maintains queue position!
             info.quantity = new_quantity;
             
-            // Publish to ring buffer (NOTE: rdtsc overhead ~2-4ns)
-            UpdateMessage msg{'M', id, new_price, new_quantity, new_side, get_timestamp_ns()};
+            // Publish to ring buffer (fast rdtsc)
+            UpdateMessage msg{ id, new_price, get_timestamp_ns(), new_quantity, 'M', new_side };
             updateBuffer.push(msg);
         }
         
@@ -552,8 +635,8 @@ public:
                 remaining -= matched;
                 total_traded_volume += matched;
                 
-                // Publish trade (NOTE: rdtsc overhead ~2-4ns)
-                UpdateMessage msg{'T', 0, price, matched, 'B', get_timestamp_ns()};
+                // Publish trade (fast rdtsc ~2-4ns)
+                UpdateMessage msg{ 0, price, get_timestamp_ns(), matched, 'T', 'B' };
                 updateBuffer.push(msg);
                 
                 // Update best ask if this level is depleted
@@ -588,8 +671,8 @@ public:
                 remaining -= matched;
                 total_traded_volume += matched;
                 
-                // Publish trade (NOTE: rdtsc overhead ~2-4ns)
-                UpdateMessage msg{'T', 0, price, matched, 'S', get_timestamp_ns()};
+                // Publish trade (fast rdtsc ~2-4ns)
+                UpdateMessage msg{ 0, price, get_timestamp_ns(), matched, 'T', 'S' };
                 updateBuffer.push(msg);
                 
                 // Update best bid if this level is depleted
@@ -770,12 +853,24 @@ int main()
     pinThreadToCore(2);
     
     std::cout << "\n========== SYSTEM CONFIGURATION ==========\n";
-    std::cout << "Engine Thread:    Core 2 (isolated)\n";
+    std::cout << "Engine Thread:    Core 2 " << (isCoreIsolated(2) ? "(ISOLATED ✓)" : "(NOT ISOLATED ✗)") << "\n";
     std::cout << "Network Thread:   Core 0\n";
     std::cout << "Publisher Thread: Core 3\n";
     std::cout << "Timing Method:    RDTSC (hardware TSC)\n";
+    
+    if (!isCoreIsolated(2))
+    {
+        std::cout << "\n⚠️  WARNING: Core 2 is NOT isolated!\n";
+        std::cout << "    Expected jitter: 400+ μs\n";
+        std::cout << "    To isolate: Add to GRUB config:\n";
+        std::cout << "    isolcpus=2 nohz_full=2 rcu_nocbs=2\n";
+    }
+    
     std::cout << "==========================================\n\n";
     
+    updateBuffer.pre_fault_memory();
+    inputQueue.pre_fault_memory();
+
     // Warmup phase to prime CPU caches and branch predictors
     std::cout << "Warming up caches...\n";
     for (int i = 0; i < 10000; i++)
@@ -791,11 +886,13 @@ int main()
     uint32_t messageCount = 0;
     LatencyHistogram histogram(10); // 10ns buckets
     
-    // TIMING: RDTSC + RDTSCP for minimal overhead
-    // Start: lfence + rdtsc + lfence (~6ns)
-    // End: rdtscp (serializing, ~3ns)
-    // RDTSCP waits for all instructions to complete before reading TSC
-    // Total overhead: ~9ns per message (vs ~20ns for chrono)
+    // TIMING: Intel's recommended RDTSC sandwich pattern
+    // Measurement boundaries:
+    //   - Start: CPUID + RDTSC (fully serializing, ~20-30ns)
+    //   - End: RDTSCP + LFENCE (ensures completion, ~8-10ns)
+    // Hot path timestamps:
+    //   - get_timestamp_ns() uses fast rdtsc (no CPUID, ~2-4ns)
+    //   - CPUID only at measurement boundaries, NOT in order book methods
     
     uint64_t totalStart = rdtsc_start();
 
@@ -897,7 +994,7 @@ int main()
     std::cout << "Processed messages: " << messageCount << "\n";
     std::cout << "Total time: " << totalDuration_us << " us\n";
     std::cout << "Throughput: " << (messageCount * 1000000.0 / totalDuration_us) << " msgs/sec\n";
-    std::cout << "Timing Method: RDTSC (start) + RDTSCP (end)\n";
+    std::cout << "Timing Method: CPUID+RDTSC / RDTSCP+LFENCE (Intel sandwich)\n";
     std::cout << "CPU Frequency: " << std::fixed << std::setprecision(2) 
               << (g_cycles_per_ns * 1000.0) << " MHz\n";
     std::cout << "====================================================\n";

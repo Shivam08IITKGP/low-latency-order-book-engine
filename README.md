@@ -2,6 +2,13 @@
 
 High-performance C++ order book with lock-free threading, CPU pinning, and hardware-accelerated timing for sub-microsecond latency.
 
+## Recent Changes
+
+- Reordered `UpdateMessage` fields to improve alignment and reduced padding; all aggregate initializers were updated accordingly.
+- Added `rdtsc_fast()` hot-path timestamp to avoid double-penalty serialization when recording event timestamps; measurement boundaries continue to use the CPUID/RDTSCP sandwich for accuracy.
+- Added CPU frequency calibration (`calibrate_cpu_frequency()`) and cycle->ns conversion so reported latencies are in real nanoseconds.
+
+
 ## Key Features
 
 ### Core Order Book
