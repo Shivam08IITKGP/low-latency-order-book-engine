@@ -70,12 +70,12 @@ Production-grade C++ order book with zero-copy networking, lock-free threading, 
 Benchmark results with 100,001 messages on non-isolated CPU core (standard Linux desktop):
 
 ```text
-================ PERFORMANCE SUMMARY ================
+================ PERFORMANCE SUMMARY ==================
 Processed messages: 100,001
 Average Throughput: 1.17M msgs/sec (5 runs: 949K-1.23M)
 Peak Throughput:    1.23M msgs/sec
 Architecture:       Zero-copy DMA-style networking
-====================================================
+=======================================================
 
 Latency Distribution (Warm Runs):
   Min:           22 ns  (hardware limit)
@@ -249,30 +249,30 @@ Memory ordering guarantees:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│       Zero-Copy Order Book Engine Pipeline          │
+│       Zero-Copy Order Book Engine Pipeline           │
 ├──────────────────────────────────────────────────────┤
-│                                                       │
+│                                                      │
 │  Network Thread (Core 0)                             │
 │    ↓ mmap() zero-copy file I/O                       │
-│    ↓ PacketView: 16-byte pointer (not 136-byte copy)│
+│    ↓ PacketView: 16-byte pointer (not 136-byte copy) │
 │    ├──► Lock-Free SPSC Queue (524K slots)            │
 │    │    • Cached atomic indices                      │
 │    │    • acquire/release semantics                  │
-│    ↓                                                  │
+│    ↓                                                 │
 │  Engine Thread (Core 2)                              │
-│    • RDTSC timing sandwich (22ns min, 105ns P50)    │
-│    • O(1) bitmap best bid/ask (__builtin_ctzll)     │
-│    • O(1) order lookup (array indexing)             │
-│    • Zero-overhead telemetry (inline flat buffer)   │
+│    • RDTSC timing sandwich (22ns min, 105ns P50)     │
+│    • O(1) bitmap best bid/ask (__builtin_ctzll)      │
+│    • O(1) order lookup (array indexing)              │
+│    • Zero-overhead telemetry (inline flat buffer)    │
 │    • Market order matching                           │
 │    • Smart modify (queue priority)                   │
 │    ├──► Lock-Free Ring Buffer (1M slots)             │
 │    │    • Pre-faulted memory                         │
-│    ↓                                                  │
+│    ↓                                                 │
 │  Publisher Thread (Core 3)                           │
 │    • Market data distribution                        │
 │    • Update broadcasting                             │
-│                                                       │
+│                                                      │
 ├──────────────────────────────────────────────────────┤
 │  Key Optimization: Zero Memcpy                       │
 │  ─────────────────────────────────                   │
