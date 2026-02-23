@@ -8,14 +8,14 @@ A production-grade, multi-threaded C++ order book engine built around zero-copy 
 
 All results measured with 100,001 messages on a standard Linux desktop — no kernel CPU isolation.
 
-| Run | Throughput | Total Time | Mean   | P50    | P90    | P99    | P99.9   |
-|-----|-----------|------------|--------|--------|--------|--------|---------|
-| 1   | 4.74M/s   | 21.1 ms    | 102 ns | 92 ns  | 145 ns | 244 ns | 927 ns  |
-| 2   | 4.56M/s   | 21.9 ms    | 113 ns | 101 ns | 144 ns | 265 ns | 2239 ns |
-| 3   | 5.02M/s   | 19.9 ms    | 97 ns  | 96 ns  | 130 ns | 213 ns | 364 ns  |
-| 4   | 5.02M/s   | 19.9 ms    | 113 ns | 100 ns | 137 ns | 248 ns | 2162 ns |
-| 5   | 5.86M/s   | 17.1 ms    | 107 ns | 100 ns | 132 ns | 231 ns | 801 ns  |
-| **Avg** | **5.04M/s** | **20.0 ms** | **106 ns** | **98 ns** | **138 ns** | **240 ns** | ~1.3 µs |
+| Run | Throughput | Min    | P50   | P90    | P99    | P99.9  |
+|-----|-----------|--------|-------|--------|--------|--------|
+| 1   | 6.25M/s   | 45 ns  | 89 ns | 104 ns | 116 ns | 249 ns |
+| 2   | 7.80M/s   | 47 ns  | 56 ns | 91 ns  | 118 ns | 198 ns |
+| 3   | 6.14M/s   | 48 ns  | 95 ns | 111 ns | 122 ns | 275 ns |
+| 4   | 5.95M/s   | 51 ns  | 92 ns | 106 ns | 128 ns | 276 ns |
+| 5   | 6.97M/s   | 51 ns  | 91 ns | 112 ns | 126 ns | 239 ns |
+| **Avg** | **6.62M/s** | **~48 ns** | **~85 ns** | **~105 ns** | **~122 ns** | **~247 ns** |
 
 **Timing method:** LFENCE+RDTSC (start) / RDTSCP+LFENCE (end) — per-message hardware TSC sandwich  
 **CPU frequency:** ~2497 MHz (calibrated at startup via TSC)

@@ -90,7 +90,7 @@ int main()
     // ----------------------------------------------------------------
     // 6. Engine loop
     // ----------------------------------------------------------------
-    // Timing: hardware TSC sandwich pattern
+    // Timing: Intel-recommended RDTSC sandwich
     //   Measurement boundary start : CPUID + RDTSC  (~20–30 ns overhead)
     //   Measurement boundary end   : RDTSCP + LFENCE (~8–10 ns overhead)
     //   Hot-path timestamps        : rdtsc_fast (no serialisation, ~2–4 ns)

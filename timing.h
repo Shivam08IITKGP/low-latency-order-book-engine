@@ -4,7 +4,7 @@
 #include <xmmintrin.h>
 
 // --------------------------------------------------------------------
-// RDTSC/RDTSCP Timing Sandwich
+// RDTSC/RDTSCP - Intel's Recommended Timing Sandwich
 // --------------------------------------------------------------------
 // Per-message measurement strategy:
 //
