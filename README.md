@@ -17,7 +17,7 @@ All results measured with 100,001 messages on a standard Linux desktop — no ke
 | 5   | 6.97M/s   | 51 ns  | 91 ns | 112 ns | 126 ns | 239 ns |
 | **Avg** | **6.62M/s** | **~48 ns** | **~85 ns** | **~105 ns** | **~122 ns** | **~247 ns** |
 
-**Timing method:** LFENCE+RDTSC (start) / RDTSCP+LFENCE (end) — per-message hardware TSC sandwich  
+**Timing method:** LFENCE+RDTSC (start) / RDTSCP+LFENCE (end) — per-message intel recommended hardware TSC sandwich  
 **CPU frequency:** ~2497 MHz (calibrated at startup via TSC)
 
 > P99.9 variance is caused by the OS scheduler interrupting the non-isolated engine core.  
