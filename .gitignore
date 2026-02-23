@@ -1,15 +1,28 @@
-# Binaries
+# Compiled binaries
 engine
+engine_monolithic
 data_gen
 gen
+receiver
+sender
 
-# Data files
+# Generated test data
 *.bin
 
-# Object files
+# Object files and static libs
 *.o
+*.a
 
-# IDEs
+# CMake build artifacts
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# IDE and editor metadata
 .vscode/
 .idea/
 .DS_Store
+*.swp
+*.swo
+orderbook

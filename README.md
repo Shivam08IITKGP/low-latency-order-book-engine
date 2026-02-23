@@ -1,429 +1,262 @@
 # Low-Latency Order Book Engine
 
-Production-grade C++ order book with zero-copy networking, lock-free threading, CPU pinning, and hardware-accelerated timing achieving **1.17M+ messages/second** with **105ns P50 latency**.
+A production-grade, multi-threaded C++ order book engine built around zero-copy networking, lock-free inter-thread communication, hardware-level timing, and CPU affinity. Designed to reflect real-world techniques used in latency-sensitive trading systems.
 
-## Recent Optimizations
+---
 
-### Zero-Copy Architecture (Latest)
-- **Eliminated memcpy overhead**: Replaced 136-byte `InputMessage` copies with 16-byte `PacketView` pointers
-- **8.5x cache efficiency**: 4 messages fit in single 64-byte cache line (vs 2.13 lines before)
-- **DMA-style networking**: Simulates kernel bypass NICs (DPDK/Solarflare ef_vi)
-- **Result**: Reduced cache coherency traffic between cores by 85%
+## Performance (5-Run Benchmark, Non-Isolated Core)
 
-### Memory & Data Structures
-- **Compact Bitfield Structs**: Compressed `OrderInfo` from 16 bytes to 8 bytes (50% memory reduction)
-- **Compile-time allocation**: Replaced `std::vector` with `std::array` for zero heap overhead
-- **Memory pre-faulting**: Touch all pages at startup to eliminate first-access page faults
-- **Zero-overhead telemetry**: Flat `std::array` buffer with inline writes (no branches in hot path)
+All results measured with 100,001 messages on a standard Linux desktop — no kernel CPU isolation.
 
-### Algorithmic Optimizations
-- **Bitmap-based best bid/ask**: O(1) price level lookups with `__builtin_ctzll` (count trailing zeros)
-- **Branch-free hot path**: Eliminated unpredictable branches from level depletion checks
-- **Smart modify orders**: Preserves queue priority on quantity decreases
+| Run | Throughput | Total Time | Mean   | P50    | P90    | P99    | P99.9   |
+|-----|-----------|------------|--------|--------|--------|--------|---------|
+| 1   | 4.74M/s   | 21.1 ms    | 102 ns | 92 ns  | 145 ns | 244 ns | 927 ns  |
+| 2   | 4.56M/s   | 21.9 ms    | 113 ns | 101 ns | 144 ns | 265 ns | 2239 ns |
+| 3   | 5.02M/s   | 19.9 ms    | 97 ns  | 96 ns  | 130 ns | 213 ns | 364 ns  |
+| 4   | 5.02M/s   | 19.9 ms    | 113 ns | 100 ns | 137 ns | 248 ns | 2162 ns |
+| 5   | 5.86M/s   | 17.1 ms    | 107 ns | 100 ns | 132 ns | 231 ns | 801 ns  |
+| **Avg** | **5.04M/s** | **20.0 ms** | **106 ns** | **98 ns** | **138 ns** | **240 ns** | ~1.3 µs |
 
-### Hardware & Timing
-- **RDTSC/RDTSCP timing**: Intel's recommended sandwich pattern with CPUID serialization
-- **CPU frequency calibration**: Accurate cycle-to-nanosecond conversion
-- **Dual timing modes**: Serialized boundaries (measurement) + fast RDTSC (event timestamps)
+**Timing method:** LFENCE+RDTSC (start) / RDTSCP+LFENCE (end) — per-message hardware TSC sandwich  
+**CPU frequency:** ~2497 MHz (calibrated at startup via TSC)
 
+> P99.9 variance is caused by the OS scheduler interrupting the non-isolated engine core.  
+> With `isolcpus=2 nohz_full=2 rcu_nocbs=2`, P99.9 is expected to drop below 5 µs consistently.
 
-## Key Features
-
-### Core Order Book
-- **Zero-Copy Processing**: Memory-mapped I/O with `mmap` (no syscalls)
-- **Zero-Copy Networking**: 16-byte pointer views instead of 136-byte payload copies (DMA-style)
-- **O(1) Order Lookup**: Direct array indexing by order ID (`std::array` pre-allocated)
-- **O(1) Best Bid/Ask**: Bitmap tracking with `__builtin_ctzll` hardware intrinsics
-- **Smart Modify Orders**: Preserves queue priority on quantity decreases
-- **Market Orders**: Walks the book across multiple price levels
-
-### HFT Optimizations
-- **Lock-Free SPSC Queues**: Single-Producer-Single-Consumer ring buffers with `std::atomic`
-  - Zero mutexes, memory ordering with `acquire`/`release` semantics
-  - Cached indices to minimize cross-core atomic loads
-- **CPU Pinning**: Thread affinity via `pthread_setaffinity_np`
-  - Prevents cache thrashing, maintains warm L1/L2 caches
-  - Core 0: Network, Core 2: Engine, Core 3: Publisher
-- **Memory Pre-Faulting**: Touch all pages at startup to eliminate first-access page faults
-  - Eliminates 100μs+ spikes from demand paging
-- **Compile-Time Allocation**: All data structures use `std::array` (no heap overhead)
-- **RDTSC/RDTSCP Timing**: Intel's recommended timing sandwich
-  - CPUID + RDTSC (start) for serialization
-  - RDTSCP + LFENCE (end) for accurate measurement
-  - Fast RDTSC (no serialization) for event timestamps
-  - Hardware cycle counter with CPU frequency calibration
-- **Multi-Threaded Architecture**:
-  - Network thread (Core 0): Zero-copy packet view production
-  - Engine thread (Core 2): Order book operations with telemetry
-  - Publisher thread (Core 3): Market data distribution
-
-### Performance Instrumentation
-- **Zero-Overhead Telemetry**: Flat `std::array` buffer with inline writes (no branches)
-- **Latency Histogram**: 10ns bucket granularity
-- **Detailed Recorder**: Per-sample capture with percentiles (P50/P90/P99/P99.9)
-- **Spike Analysis**: Automatic detection of >1μs, >10μs, >100μs outliers
-- **Top-10 Spikes**: Identifies worst latencies with message index and type
-- **Jitter Analysis**: Statistical analysis (mean, stddev, min, max)
-
-## Performance Summary
-
-Benchmark results with 100,001 messages on non-isolated CPU core (standard Linux desktop):
-
-```text
-================ PERFORMANCE SUMMARY ==================
-Processed messages: 100,001
-Average Throughput: 1.17M msgs/sec (5 runs: 949K-1.23M)
-Peak Throughput:    1.23M msgs/sec
-Architecture:       Zero-copy DMA-style networking
-=======================================================
-
-Latency Distribution (Warm Runs):
-  Min:           22 ns  (hardware limit)
-  Median (P50):  105-108 ns
-  P90:           136-148 ns
-  P99:           259-286 ns
-  P99.9:         2.2-2.4 μs
-  Max:           45-85 μs (OS scheduler jitter)
-
-Spike Analysis:
-  >1μs:    234-509 events (0.2-0.5%)
-  >10μs:   8-19 events (0.01-0.02%)
-  >100μs:  0-4 events (mostly 0, scheduler interrupts)
-
-Timing Method: CPUID+RDTSC / RDTSCP+LFENCE (Intel sandwich)
-CPU Frequency:  ~2.5 GHz (calibrated at startup)
-```
-
-**Key Achievements:**
-- **1.17M msgs/sec sustained throughput** with zero-copy architecture
-- **22ns minimum latency** (RDTSC hardware overhead included)
-- **105ns P50 latency** (consistent, predictable performance)
-- **<300ns P99** (99% of messages in sub-microsecond range)
-- **Zero memcpy overhead** (DMA-style pointer passing)
-- **8.5x reduced cache traffic** (16-byte views vs 136-byte copies)
-
-**Architecture Impact:**
-- Zero-copy networking eliminated 128-byte memcpy per message
-- Pre-faulted memory eliminates page fault spikes
-- Bitmap lookups eliminated 100-1000 cycles per level search
-- `std::array` eliminated all heap allocations
-
-**Note:** Running on non-isolated desktop CPU. OS scheduler interrupts cause occasional spikes >10μs.  
-Production deployment with `isolcpus=2 nohz_full=2` would reduce max jitter to <5μs consistently.
-
-## Getting Started
-
-### Prerequisites
-
-- GCC with C++17 support
-- Make
-- Linux (for CPU pinning with `sched_setaffinity`)
-- x86_64 CPU (for RDTSC/RDTSCP instructions)
-
-### Build and Run
-
-```bash
-# Build everything
-make all
-
-# Generate test data (100k messages)
-./data_gen
-
-# Run the engine with full HFT optimizations
-./engine
-```
-
-## Technical Deep Dive
-
-### Bitmap-Based Best Bid/Ask Lookup
-
-Traditional approach (branch misprediction prone):
-```cpp
-// Linear scan with unpredictable branch
-while (max_bid_price > 0 && bids[max_bid_price] == 0)
-    max_bid_price--;  // HIGH MISPREDICTION RATE
-```
-
-Optimized approach (deterministic one-cycle lookup):
-```cpp
-// Bitmap tracks occupied price levels
-uint64_t bid_bitmap[MAX_PRICE / 64 + 1];  // ~1564 uint64_t for 100k prices
-
-// When price depletes: O(1) bit clear
-when_qty_reaches_zero_at_price_p:
-    bid_bitmap[p / 64] &= ~(1ULL << (p % 64));
-
-// Find next best: ONE CPU INSTRUCTION
-int next_price = (p / 64) * 64 + __builtin_ctzll(bid_bitmap[p / 64]);
-// __builtin_ctzll = count trailing zeros = FIND FIRST SET BIT = 1 clock cycle
-```
-
-**Benefits:**
-- Predictable CPU behavior (no branch misses)
-- O(1) in worst case (vs O(n) linear scan)
-- Saves 100-1000+ CPU cycles per lookup on sparse books
-- Critical for HFT: repeated lookups during heavy trading
-
-### RDTSC/RDTSCP Timing Implementation
-
-Engine uses Intel's recommended "timing sandwich" pattern for accurate latency measurement:
-
-```cpp
-// START: Fully serializing baseline
-inline uint64_t rdtsc_start() {
-    unsigned int lo, hi;
-    __asm__ __volatile__ (
-        "cpuid\n\t"      // Serialize: wait for all prior instructions
-        "rdtsc\n\t"      // Read Time Stamp Counter
-        : "=a" (lo), "=d" (hi)
-        :: "rbx", "rcx"  // CPUID clobbers these
-    );
-    return ((uint64_t)hi << 32) | lo;
-}
-
-// END: Partially serializing measurement
-inline uint64_t rdtsc_end() {
-    unsigned int lo, hi, aux;
-    __asm__ __volatile__ (
-        "rdtscp\n\t"     // Wait for prior instructions, then read TSC
-        "lfence\n\t"     // Prevent subsequent instructions from starting
-        : "=a" (lo), "=d" (hi), "=c" (aux)
-    );
-    return ((uint64_t)hi << 32) | lo;
-}
-
-// HOT PATH: Fast timestamps (no serialization)
-inline uint64_t rdtsc_fast() {
-    unsigned int lo, hi;
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    return ((uint64_t)hi << 32) | lo;
-}
-
-// Convert cycles to nanoseconds using calibrated frequency
-inline uint64_t cycles_to_ns(uint64_t cycles) {
-    return cycles / g_cycles_per_ns;  // ~2.5 cycles/ns on test CPU
-}
-```
-
-**Why This Pattern?**
-- **CPUID**: Fully serializing - ensures all prior work completes before measurement starts
-- **RDTSCP**: Partially serializing - waits for measured code but doesn't block subsequent code
-- **LFENCE**: Memory fence - prevents instruction reordering after measurement
-- **Fast RDTSC**: Used for event timestamps inside order book (no serialization overhead)
-- **Overhead**: ~20-30ns for start, ~8-10ns for end = total ~28-40ns measurement cost
-
-**CPU Frequency Calibration:**
-- Measures cycles/nanosecond ratio at startup using known time period
-- Allows accurate conversion of TSC cycles to real nanoseconds
-- Handles varying CPU frequencies across different machines
-
-### Lock-Free SPSC Queues
-
-Single-Producer-Single-Consumer queues with atomic indices:
-
-```cpp
-template<typename T, size_t Size>
-class RingBuffer {
-    T buffer[Size];
-    std::atomic<size_t> write_idx{0};  // Producer updates
-    std::atomic<size_t> read_idx{0};   // Consumer updates
-    
-    bool push(const T& msg) {
-        size_t current = write_idx.load(std::memory_order_relaxed);
-        size_t next = (current + 1) % Size;
-        if (next == read_idx.load(std::memory_order_acquire))
-            return false;  // Full
-        buffer[current] = msg;
-        write_idx.store(next, std::memory_order_release);
-        return true;
-    }
-};
-```
-
-Memory ordering guarantees:
-- `acquire`: Consumer sees all producer writes
-- `release`: Producer makes data visible before updating index
-- Zero mutex overhead, 10x faster than traditional queues
+---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│       Zero-Copy Order Book Engine Pipeline           │
-├──────────────────────────────────────────────────────┤
-│                                                      │
-│  Network Thread (Core 0)                             │
-│    ↓ mmap() zero-copy file I/O                       │
-│    ↓ PacketView: 16-byte pointer (not 136-byte copy) │
-│    ├──► Lock-Free SPSC Queue (524K slots)            │
-│    │    • Cached atomic indices                      │
-│    │    • acquire/release semantics                  │
-│    ↓                                                 │
-│  Engine Thread (Core 2)                              │
-│    • RDTSC timing sandwich (22ns min, 105ns P50)     │
-│    • O(1) bitmap best bid/ask (__builtin_ctzll)      │
-│    • O(1) order lookup (array indexing)              │
-│    • Zero-overhead telemetry (inline flat buffer)    │
-│    • Market order matching                           │
-│    • Smart modify (queue priority)                   │
-│    ├──► Lock-Free Ring Buffer (1M slots)             │
-│    │    • Pre-faulted memory                         │
-│    ↓                                                 │
-│  Publisher Thread (Core 3)                           │
-│    • Market data distribution                        │
-│    • Update broadcasting                             │
-│                                                      │
-├──────────────────────────────────────────────────────┤
-│  Key Optimization: Zero Memcpy                       │
-│  ─────────────────────────────────                   │
-│  Before: 136 bytes copied per msg (network→engine)   │
-│  After:  16 bytes pointer view                       │
-│  Savings: 8.5x less cache line traffic               │
-│  Result: 4 messages fit in 1 cache line              │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│              Order Book Engine — Thread Pipeline        │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Network Thread  (Core 0)                               │
+│  ─────────────────────────────────────────────────────  │
+│  Reads memory-mapped file, builds zero-copy PacketViews │
+│  (16-byte pointer+type, not a 136-byte payload copy)    │
+│      │                                                  │
+│      ▼  Lock-Free SPSC Queue  (524 K slots)             │
+│                                                         │
+│  Engine Thread  (Core 2)                                │
+│  ─────────────────────────────────────────────────────  │
+│  Pops PacketViews, casts payload pointer directly       │
+│  Dispatches: addOrder / cancelOrder / executeTrade /    │
+│              modifyOrder / executeMarketOrder           │
+│  Per-message RDTSC sandwich timing                      │
+│      │                                                  │
+│      ▼  Lock-Free Ring Buffer  (1 M slots)              │
+│                                                         │
+│  Publisher Thread  (Core 3)                             │
+│  ─────────────────────────────────────────────────────  │
+│  Drains UpdateMessages; in production this thread       │
+│  would fan out to market-data feeds, client             │
+│  connections, and a persistence layer                   │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
 ```
 
-## HFT Techniques
+---
 
-### 1. Zero-Copy Networking (DMA Simulation)
-- **PacketView Architecture**: 16-byte pointer instead of 136-byte payload copy
-- **Direct Casting**: Engine casts from pointer without intermediate buffer
-- **Cache Efficiency**: 4 messages per 64-byte cache line (vs 0.47 before)
-- **Real-World Analog**: Simulates DPDK/Solarflare NICs with Direct Memory Access
-- **Result**: Eliminated memcpy overhead, 8.5x less inter-core traffic
+## Module Structure
 
-### 2. Memory Pre-Faulting
-- Touch one element per 4KB page at startup
-- Eliminates first-access page faults in hot path
-- Removes 100μs+ spikes from demand paging
-- Critical for consistent P99 latency
-
-### 3. Lock-Free Threading
-- SPSC queues with `std::atomic`
-- Memory ordering (`acquire`/`release`) for cache coherency
-- Cached indices minimize expensive atomic loads across cores
-- 10x faster than mutex-based queues
-
-### 4. CPU Pinning
-- `pthread_setaffinity_np` pins threads to specific cores
-- Prevents OS scheduler from moving threads
-- Keeps L1/L2 caches warm, eliminates cold cache misses
-- Core assignment: 0 (network), 2 (engine), 3 (publisher)
-
-### 5. Compile-Time Allocation & Compact Structs
-- All data structures use `std::array` instead of `std::vector`
-- Zero heap allocations after initialization
-- No malloc/free in critical path
-- **Bitfield Compression**: `OrderInfo` struct compressed from 16 bytes to 8 bytes
-  - `uint64_t price : 32`
-  - `uint64_t quantity : 31`
-  - `uint64_t side : 1`
-- **Impact**: Halved memory footprint (16MB → 8MB), doubled L3 cache density, halved TLB pressure
-
-### 6. Bitmap-Based Price Level Tracking
-- `bid_bitmap` and `ask_bitmap` track occupied price levels
-- Clear bit in O(1) when level depletes: `bitmap[p/64] &= ~(1ULL << p%64)`
-- Find next best using `__builtin_ctzll()` (count trailing zeros) = 1 CPU cycle
-- Eliminates branch misprediction from: `while(price > 0 && bids[price] == 0) price--`
-- **Speedup**: 1-2 cycles instead of 0-100k cycles for level discovery
-
-### 7. Smart Modify Orders
-- Quantity decrease maintains queue priority
-- Price/side change loses priority (Cancel + Add)
-- Critical for HFT: queue position = alpha
-- Preserves time priority in exchange matching algorithms
-
-### 8. Hardware Timing (Intel RDTSC Sandwich)
-- **Start**: CPUID + RDTSC (fully serializing, prevents out-of-order)
-- **End**: RDTSCP + LFENCE (waits for completion, prevents speculation)
-- **Hot Path**: Fast RDTSC (non-serializing) for event timestamps
-- CPU frequency calibration for accurate cycle-to-nanosecond conversion
-- 22ns minimum measurable latency
-
-### 9. Zero-Overhead Telemetry
-- Flat `std::array<Sample, 200000>` pre-allocated buffer
-- Hot path: Single inline write `samples[count++] = {latency, idx, type}`
-- No branches, no allocation, no function calls
-- Post-processing: All analysis deferred until after benchmark
-- Result: Full observability with <1% throughput penalty
-
-## Optimization Journey
-
-### ✅ Completed Optimizations
-1. **Zero-Copy Networking** - DMA-style pointer passing (8.5x cache efficiency)
-2. **Memory Pre-Faulting** - Eliminated page fault spikes
-3. **Compile-Time Allocation** - `std::array` instead of `std::vector` (zero heap)
-4. **Bitmap Best Bid/Ask** - O(1) lookups with `__builtin_ctzll`
-5. **Zero-Overhead Telemetry** - Flat buffer with inline writes
-6. **RDTSC Timing Sandwich** - Intel's recommended pattern with calibration
-7. **Lock-Free SPSC Queues** - Atomic indices with cached reads
-8. **CPU Pinning** - Thread affinity to prevent cache thrashing
-
-**Result:** 1.17M msgs/sec with 105ns P50 latency on standard desktop Linux
+```
+.
+├── common.h          # Wire-format structs: StreamHeader, OrderMessage, TradeMessage
+│
+├── timing.h/.cpp     # Hardware TSC timing utilities
+│                     #   rdtsc_start_full() — CPUID+RDTSC  (outer boundary, once per run)
+│                     #   rdtsc_start()      — LFENCE+RDTSC (per-message start)
+│                     #   rdtsc_end()        — RDTSCP+LFENCE (per-message end)
+│                     #   rdtsc_fast()       — bare RDTSC for hot-path timestamps
+│                     #   calibrate_cpu_frequency() / cycles_to_ns() / get_timestamp_ns()
+│
+├── cpu_utils.h/.cpp  # CPU affinity and hardware spin
+│                     #   pinThreadToCore() / isCoreIsolated() / cpu_pause()
+│
+├── ring_buffer.h     # Lock-free SPSC ring buffer template
+│                     #   RingBuffer<T, Size>  push / pop / pre_fault_memory()
+│
+├── messages.h/.cpp   # Shared message types and global queues
+│                     #   UpdateMessage, PacketView
+│                     #   updateBuffer (engine → publisher), inputQueue (network → engine)
+│                     #   stopPublisher / stopNetworkThread / stopEngine
+│                     #   startNetworkTraffic — warmup synchronisation barrier
+│
+├── order_book.h/.cpp # Core price-level matching engine
+│                     #   addOrder / cancelOrder / executeTrade
+│                     #   modifyOrder / executeMarketOrder
+│
+├── latency.h/.cpp    # Latency measurement and reporting
+│                     #   LatencyHistogram / LatencyRecorder / g_latency_recorder
+│
+├── threads.h/.cpp    # Thread entry points
+│                     #   networkThread()   — zero-copy packet producer
+│                     #   publisherThread() — update consumer
+│
+├── main.cpp          # Engine entry point
+│                     #   startup → pre-fault → warmup → benchmark loop → shutdown
+│
+├── data_gen.cpp      # Synthetic market-data generator (produces market_data.bin)
+│
+└── CMakeLists.txt    # Release build configuration (-O3 -march=native -mtune=native)
+```
 
 ---
 
-### 🚀 Production Deployment (Not Applied - Desktop PC)
+## Build & Run
 
-**Why not implemented:** This system runs on a daily-use desktop computer. The following optimizations require kernel modifications that would interfere with normal OS operations.
+### Prerequisites
 
-#### System-Level (Requires Reboot + GRUB Config)
-1. **CPU Isolation**: Boot parameter `isolcpus=2 nohz_full=2 rcu_nocbs=2`
-   - **Impact**: Reduces max jitter from 85μs to <5μs
-   - **Why it works**: Dedicates Core 2 exclusively to engine, no timer ticks/RCU callbacks
-   - **Tradeoff**: Core 2 unavailable to other processes
-   
-2. **Memory Locking**: `mlockall(MCL_CURRENT | MCL_FUTURE)`
-   - **Impact**: Prevents page faults in critical path
-   - **Why it works**: All memory resident, never swapped
-   - **Tradeoff**: Reduces available memory for other applications
-   
-3. **Huge Pages**: 2MB pages instead of 4KB
-   - **Impact**: Reduces TLB misses by 512x
-   - **Why it works**: Fewer page table entries to cache
-   - **Tradeoff**: Higher memory fragmentation
+- GCC 9+ or Clang 10+ with C++17 support
+- CMake 3.16+
+- Linux x86-64 (required for `RDTSC`/`RDTSCP` and `pthread_setaffinity_np`)
 
-**Expected Performance with CPU Isolation:**
-- Throughput: 1.4-1.5M msgs/sec (consistent)
-- P50: 95-100ns
-- P99: <250ns
-- Max: <5μs (vs 85μs currently)
+### Steps
 
----
+```bash
+# 1. Generate synthetic test data (market_data.bin, ~100 k messages)
+g++ -O2 -std=c++17 data_gen.cpp -o data_gen && ./data_gen
 
-### 🔬 Research-Grade Infrastructure ($$$$)
+# 2. Configure and build (Release mode)
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 
-These require specialized hardware and are beyond the scope of this project:
+# 3. Run from repo root so the binary can find market_data.bin
+cd ..
+./build/orderbook
+```
 
-4. **DPDK**: Kernel bypass networking
-   - Polling mode drivers eliminate kernel overhead
-   - End-to-end latency <500ns possible
-   
-5. **RDMA/Infiniband**: Zero-copy networking across machines
-   - Sub-microsecond market data feeds over network
-   
-6. **FPGA Acceleration**: Hardware matching engine
-   - Deterministic <200ns tick-to-trade
-   - Used by Citadel, Jump Trading, etc.
+### Optional: CPU Isolation for Deterministic Latency
 
-## Skills Demonstrated
+Add to `/etc/default/grub` to dedicate core 2 entirely to the engine:
 
-| Area | Implementation |
-|------|----------------|
-| **Zero-Copy Design** | DMA-style pointer passing, eliminated 128-byte memcpy per message |
-| **Systems Programming** | CPU pinning, memory barriers, cache optimization, pre-faulting |
-| **Concurrency** | Lock-free data structures, atomics, memory ordering, cached indices |
-| **Performance Engineering** | RDTSC timing, jitter analysis, tail latency optimization, P99 tuning |
-| **Low-Level Optimization** | Hardware intrinsics (`__builtin_ctzll`), instruction serialization, alignment |
-| **Memory Management** | Compile-time allocation (`std::array`), zero heap, page fault elimination |
-| **Domain Knowledge** | Order book mechanics, queue priority, market microstructure, DMA networking |
-| **Observability** | Zero-overhead telemetry, percentile tracking, spike analysis |
+```
+GRUB_CMDLINE_LINUX="isolcpus=2 nohz_full=2 rcu_nocbs=2"
+```
+
+Then:
+```bash
+sudo update-grub && sudo reboot
+```
+
+- `isolcpus=2`  — removes core from scheduler load balancing
+- `nohz_full=2` — disables periodic timer ticks (tickless mode)
+- `rcu_nocbs=2` — offloads RCU callbacks to other cores
+
+Expected effect: max latency drops from ~200 µs → < 5 µs; P99.9 becomes consistently sub-microsecond.
 
 ---
 
-**Architecture Philosophy:**  
-Production-grade HFT system demonstrating hardware-software co-optimization for sub-microsecond critical paths. Every design decision prioritizes determinism, cache efficiency, and branch predictability over algorithmic complexity.
+## Key Techniques
+
+### 1. Zero-Copy Networking
+
+Instead of copying each packet payload (136 bytes) into the queue, the network thread publishes a `PacketView` — a 16-byte struct holding a raw pointer into the memory-mapped file and a cached type byte. The engine casts that pointer directly to the wire-format struct.
+
+```
+Before:  network → memcpy 136 bytes → queue → engine
+After:   network → 16-byte pointer view → queue → engine casts in-place
+```
+
+- 8.5× fewer bytes transferred between cores per message
+- 4 `PacketView`s fit in a single 64-byte cache line
+
+### 2. Lock-Free SPSC Ring Buffer
+
+Both queues are single-producer / single-consumer ring buffers backed by `std::atomic` indices.
+
+Critical design choices:
+- **`alignas(64)` on each index group** — prevents producer and consumer index variables sharing a cache line (false sharing would cause cross-core coherency traffic on every access)
+- **Cached remote indices** — each thread keeps a local copy of the other thread's index; the `acquire` load only fires on the slow path when the cached value indicates full/empty
+- **Power-of-2 capacity** — index wrap uses `& MASK` instead of `% Size`
+
+### 3. Memory Pre-Faulting
+
+Every ring buffer and order table is touched once per 4 KB page at startup before any benchmark timing begins. This maps all physical pages up front, removing demand-paging latency spikes (which can exceed 100 µs on the first access to a cold page) from the measured path.
+
+### 4. Warmup Synchronisation Barrier (`startNetworkTraffic`)
+
+The network thread blocks on an atomic flag until the engine finishes its warmup. Without this, the network thread saturates the input queue during pre-faulting, and the first benchmark measurements see a fully-hot, pre-populated queue — not real inter-core contention.
+
+```cpp
+// main.cpp — taken immediately before the engine loop
+uint64_t totalStart = rdtsc_start();
+startNetworkTraffic.store(true, std::memory_order_release);
+```
+
+### 5. Dead-Store Elimination Guard
+
+Without an observable side effect in the publisher thread, the compiler can prove (across translation units with LTO) that `UpdateMessage` fields written by the engine are never read, and strip the writes from `addOrder`. A `volatile` accumulator forces those fields to be treated as externally observable:
+
+```cpp
+volatile uint64_t dummy_accumulator = 0;
+// inside the pop loop:
+dummy_accumulator += msg.price;
+```
+
+### 6. RDTSC/RDTSCP Timing Sandwich
+
+Three functions serve different measurement roles:
+
+| Function | Instructions | Overhead | Use case |
+|---|---|---|---|
+| `rdtsc_start_full()` | CPUID + RDTSC | ~150 cycles | Outer run boundary (called once) |
+| `rdtsc_start()` | LFENCE + RDTSC | ~20 cycles | Per-message start |
+| `rdtsc_end()` | RDTSCP + LFENCE | ~20 cycles | Per-message end |
+| `rdtsc_fast()` | RDTSC | ~2 cycles | Hot-path event timestamps |
+
+`LFENCE` drains pending load operations before reading the counter. `RDTSCP` waits for prior instructions to retire before sampling. `CPUID` fully serialises the pipeline but costs ~100–150 cycles — appropriate for a one-time benchmark boundary, not per-message measurement.
+
+### 7. Bitmap O(1) Best Bid / Ask
+
+Price occupancy is tracked in `bid_bitmap` and `ask_bitmap` — one bit per price level. Finding the best price uses a hardware count-trailing-zeros instruction:
+
+```cpp
+// O(1) clear when a level depletes
+bid_bitmap[price / 64] &= ~(1ULL << (price % 64));
+
+// O(1) best-price discovery — single CPU instruction
+int best = idx * 64 + __builtin_ctzll(bid_bitmap[idx]);
+```
+
+A linear scan on a sparse book can cost thousands of cycles; the bitmap approach is constant time regardless of book depth.
+
+### 8. Compact OrderInfo Bitfield
+
+Per-order metadata fits in 8 bytes via a bitfield:
+
+```cpp
+struct alignas(8) OrderInfo {
+    uint64_t price    : 32;  // covers the full price range
+    uint64_t quantity : 31;  // up to ~2 billion shares
+    uint64_t side     :  1;  // 0 = Buy, 1 = Sell
+};
+```
+
+This halves the memory footprint of the 1 M-entry order table (8 MB vs 16 MB), doubling cache density and halving TLB pressure.
+
+### 9. CPU Pinning
+
+Each thread is bound to a fixed core via `pthread_setaffinity_np`:
+
+- **Core 0** — network thread
+- **Core 2** — engine thread (hot path)
+- **Core 3** — publisher thread
+
+This prevents the OS scheduler from migrating threads mid-run, which would invalidate L1/L2 caches and introduce unpredictable latency spikes. The engine also checks whether the assigned core is kernel-isolated at startup and prints a warning if not.
 
 ---
 
-Built for high-frequency trading systems engineering roles. Techniques demonstrated are used in real production systems at firms like Citadel, Jump Trading, Hudson River Trading, and Jane Street.
+## Latency Instrumentation
+
+TSC start/end values for every message are stored into exact-capacity `std::vector` buffers (sized by a pre-scan of the message file). After the engine loop exits, TSC deltas are converted to nanoseconds and analysed by:
+
+- **`LatencyHistogram`** — 10 ns bucket histogram, min/max/jitter summary
+- **`LatencyRecorder`** — per-sample store with P50 / P90 / P99 / P99.9, mean, stddev, and top-10 spike report (sample index + message type)
+
+All post-processing runs after the benchmark timer stops, contributing zero overhead to the measured path.
+
+
