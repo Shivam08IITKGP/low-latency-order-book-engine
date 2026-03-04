@@ -14,9 +14,14 @@
 #include "order_book.h"
 #include "latency.h"
 #include "threads.h"
+#include "journal.h"
 
 // Global order book (large static allocation — no heap pressure at runtime)
 static OrderBook orderBook;
+
+// Initialize the persistent journal (Sequential Message Log)
+// 10M entries = ~500MB on disk for 48-byte UpdateMessages
+MappedJournal<UpdateMessage, 10000000> persistentJournal("event_journal.bin");
 
 int main()
 {
@@ -82,7 +87,8 @@ int main()
     std::cout << "Warming up caches...\n";
     for (int i = 0; i < 10000; i++)
     {
-        orderBook.addOrder(i, 'B', i % 1000, 10);
+        // participant_id cycles across five owners to warm STP branch predictors.
+        orderBook.addOrder(i, 'B', i % 1000, 10, static_cast<uint32_t>(i % 5));
         orderBook.cancelOrder(i);
     }
     std::cout << "Warmup complete. Starting benchmark.\n\n";
@@ -220,7 +226,13 @@ int main()
 
     std::cout << "Final Book Size -> Bids: " << orderBook.getBidsSize()
               << " | Asks: "                 << orderBook.getAsksSize() << "\n";
-    std::cout << "\nTotal Traded Volume = " << orderBook.getTotalTradedVolume() << "\n";
+    std::cout << "Total Traded Volume = " << orderBook.getTotalTradedVolume() << "\n";
+    std::cout << "VWAP = " << std::fixed << std::setprecision(2) << orderBook.getVWAP() << "\n";
+
+    // Save final state snapshot
+    if (orderBook.saveSnapshot("orderbook_snapshot.bin")) {
+        std::cout << "Snapshot saved to orderbook_snapshot.bin\n";
+    }
 
     // ----------------------------------------------------------------
     // 8. Graceful shutdown

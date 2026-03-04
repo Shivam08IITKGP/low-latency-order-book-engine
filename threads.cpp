@@ -2,7 +2,11 @@
 #include "messages.h"
 #include "cpu_utils.h"
 #include "common.h"
+#include "journal.h"
 #include <iostream>
+
+// Defined in main.cpp alongside the global OrderBook and MappedJournal instances.
+extern MappedJournal<UpdateMessage, 10000000> persistentJournal;
 
 // --------------------------------------------------------------------
 // NETWORK THREAD — zero-copy producer (Core 0)
@@ -67,6 +71,11 @@ void publisherThread()
     {
         if (updateBuffer.pop(msg))
         {
+            // PERSISTENCE: Write every outgoing event directly to the mapped journal.
+            // This happens on the Publisher thread (Core 3), offloading the
+            // I/O overhead from the Engine thread (Core 2).
+            persistentJournal.append(msg);
+
             dummy_accumulator += msg.price; // must read the payload — defeats dead-store elimination
             published_count++;
         }
