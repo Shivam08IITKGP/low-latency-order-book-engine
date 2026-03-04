@@ -9,7 +9,7 @@
 extern MappedJournal<UpdateMessage, 10000000> persistentJournal;
 
 // --------------------------------------------------------------------
-// NETWORK THREAD — zero-copy producer (Core 0)
+// NETWORK THREAD -- zero-copy producer (Core 0)
 // --------------------------------------------------------------------
 
 void networkThread(char* file_memory, size_t file_size)
@@ -50,7 +50,7 @@ void networkThread(char* file_memory, size_t file_size)
 }
 
 // --------------------------------------------------------------------
-// PUBLISHER THREAD — update consumer (Core 3)
+// PUBLISHER THREAD -- update consumer (Core 3)
 // --------------------------------------------------------------------
 
 void publisherThread()
@@ -76,12 +76,12 @@ void publisherThread()
             // I/O overhead from the Engine thread (Core 2).
             persistentJournal.append(msg);
 
-            dummy_accumulator += msg.price; // must read the payload — defeats dead-store elimination
+            dummy_accumulator += msg.price; // must read the payload -- defeats dead-store elimination
             published_count++;
         }
         else
         {
-            // Empty — busy-wait; never yield in HFT (context switch = 1–3 μs)
+            // Empty -- busy-wait; never yield in HFT (context switch = 1-3 us)
             cpu_pause();
         }
     }

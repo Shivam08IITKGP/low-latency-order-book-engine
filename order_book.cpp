@@ -34,7 +34,7 @@ inline void OrderBook::clear_ask_level(uint64_t price)
 // Best-price search using bit-scanning intrinsics
 // ----------------------------------------------------------------
 
-// Find the lowest ask price ≥ start_price with quantity > 0.
+// Find the lowest ask price >= start_price with quantity > 0.
 uint64_t OrderBook::find_next_ask(uint64_t start_price)
 {
     for (uint64_t price = start_price; price <= MAX_PRICE; price++)
@@ -45,7 +45,7 @@ uint64_t OrderBook::find_next_ask(uint64_t start_price)
         if (masked)
             return idx * 64 + __builtin_ctzll(masked);
 
-        // No bit in this block — scan remaining blocks
+        // No bit in this block -- scan remaining blocks
         for (size_t i = idx + 1; i < BITMAP_SIZE; i++)
         {
             if (ask_bitmap[i])
@@ -56,7 +56,7 @@ uint64_t OrderBook::find_next_ask(uint64_t start_price)
     return MAX_PRICE + 1;
 }
 
-// Find the highest bid price ≤ start_price with quantity > 0.
+// Find the highest bid price <= start_price with quantity > 0.
 uint64_t OrderBook::find_next_bid(uint64_t start_price)
 {
     for (int64_t price = start_price; price >= 0; price--)
@@ -67,7 +67,7 @@ uint64_t OrderBook::find_next_bid(uint64_t start_price)
         if (masked)
             return idx * 64 + (63 - __builtin_clzll(masked));
 
-        // No bit in this block — scan remaining blocks downward
+        // No bit in this block -- scan remaining blocks downward
         for (int64_t i = idx - 1; i >= 0; i--)
         {
             if (bid_bitmap[i])
@@ -89,7 +89,7 @@ OrderBook::OrderBook()
 }
 
 // ----------------------------------------------------------------
-// NEW ORDER ('N')  — Price-Time (FIFO) Priority Matching Engine
+// NEW ORDER ('N')  -- Price-Time (FIFO) Priority Matching Engine
 // ----------------------------------------------------------------
 // Matching rule: incoming order walks the opposite side's FIFO queue
 // from the best price level outward. Within each price level, the
@@ -228,7 +228,7 @@ void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quanti
         }
     }
 
-    // IOC: discard any unfilled remainder immediately — do NOT post to book
+    // IOC: discard any unfilled remainder immediately -- do NOT post to book
     if (type == OrderType::IOC)
     {
         if (remaining_qty > 0)
@@ -251,7 +251,7 @@ void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quanti
     }
 
     // GTC (default): append remaining qty to the BACK of the price level's
-    // FIFO queue — this preserves time priority for all existing resting orders.
+    // FIFO queue -- this preserves time priority for all existing resting orders.
     if (remaining_qty > 0)
     {
         order_lookup[id] = { static_cast<uint32_t>(price), remaining_qty,
@@ -298,7 +298,7 @@ void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quanti
 // O(1) lazy cancellation: subtract qty from the level's total_qty
 // immediately (keeping the book's visible depth correct), then zero
 // out info.quantity so the matching loop silently skips this node.
-// The node is not physically unlinked here — that happens the next
+// The node is not physically unlinked here -- that happens the next
 // time the head of the queue is visited during matching.
 
 void OrderBook::cancelOrder(uint64_t id)
@@ -342,7 +342,7 @@ void OrderBook::cancelOrder(uint64_t id)
 }
 
 // ----------------------------------------------------------------
-// TRADE ('T') — reduces quantity on both matched sides
+// TRADE ('T') -- reduces quantity on both matched sides
 // ----------------------------------------------------------------
 
 void OrderBook::executeTrade(uint64_t buy_id, uint64_t sell_id, uint32_t qty)
@@ -382,13 +382,13 @@ void OrderBook::executeTrade(uint64_t buy_id, uint64_t sell_id, uint32_t qty)
 }
 
 // ----------------------------------------------------------------
-// MODIFY ORDER ('M') — smart priority preservation
+// MODIFY ORDER ('M') -- smart priority preservation
 // ----------------------------------------------------------------
 // Priority rules (exchange-standard):
-//   Price / side changed  → cancel + re-add (lose priority)
-//   Quantity increased    → cancel + re-add (lose priority)
-//   Quantity decreased    → update in-place (KEEP priority)
-//   Quantity unchanged    → no-op
+//   Price / side changed  -> cancel + re-add (lose priority)
+//   Quantity increased    -> cancel + re-add (lose priority)
+//   Quantity decreased    -> update in-place (KEEP priority)
+//   Quantity unchanged    -> no-op
 
 void OrderBook::modifyOrder(uint64_t id, char new_side,
                              uint64_t new_price, uint32_t new_quantity)
@@ -402,7 +402,7 @@ void OrderBook::modifyOrder(uint64_t id, char new_side,
 
     uint8_t new_side_bit = (new_side == 'B' ? 0 : 1);
 
-    // Case 1 & 2: Price/side change or quantity increase → lose priority
+    // Case 1 & 2: Price/side change or quantity increase -> lose priority
     if (new_price != info.price || new_side_bit != info.side ||
         new_quantity > info.quantity)
     {
@@ -411,7 +411,7 @@ void OrderBook::modifyOrder(uint64_t id, char new_side,
         return;
     }
 
-    // Case 3: Quantity decreased — update in-place, KEEP queue position
+    // Case 3: Quantity decreased -- update in-place, KEEP queue position
     if (new_quantity < info.quantity)
     {
         uint32_t decrease = info.quantity - new_quantity;
@@ -445,11 +445,11 @@ void OrderBook::modifyOrder(uint64_t id, char new_side,
         updateBuffer.push(msg);
     }
 
-    // Case 4: Quantity unchanged — no-op
+    // Case 4: Quantity unchanged -- no-op
 }
 
 // ----------------------------------------------------------------
-// MARKET ORDER — walks the book, bitmap-optimised
+// MARKET ORDER -- walks the book, bitmap-optimised
 // ----------------------------------------------------------------
 
 void OrderBook::executeMarketOrder(char side, uint32_t quantity)

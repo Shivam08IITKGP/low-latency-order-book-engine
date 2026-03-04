@@ -9,47 +9,47 @@
 static constexpr uint64_t MAX_PRICE = 100000;
 
 // --------------------------------------------------------------------
-// ORDER BOOK  — Price-Time Priority (FIFO) Matching Engine
+// ORDER BOOK  -- Price-Time Priority (FIFO) Matching Engine
 // --------------------------------------------------------------------
 //
 // Data structures
-// ───────────────
+// ---------------
 //   bid_levels[price] / ask_levels[price]
 //     FIFO queue { head, tail } of order IDs + total_qty per price level.
 //     Backed by an intrusive singly-linked list through OrderInfo::next_id.
-//     → O(1) enqueue (append to tail) and O(1) dequeue (pop from head).
+//     -> O(1) enqueue (append to tail) and O(1) dequeue (pop from head).
 //
 //   order_lookup[order_id]
 //     Direct-indexed table of 16-byte OrderInfo records.
-//     → O(1) lookup with no hash collisions and no heap allocation.
+//     -> O(1) lookup with no hash collisions and no heap allocation.
 //     next_id chains orders within each price level's FIFO queue.
 //     Lazy cancellation: quantity is zeroed; the node is left in the
-//     linked list and silently skipped during matching — O(1) cancel
+//     linked list and silently skipped during matching -- O(1) cancel
 //     with no list traversal required.
 //
 //   bid_bitmap / ask_bitmap
 //     One bit per price level.  Best-price search uses __builtin_ctzll /
-//     __builtin_clzll — a single hardware instruction, O(1) regardless
+//     __builtin_clzll -- a single hardware instruction, O(1) regardless
 //     of book depth.
 //
 // Memory footprint
-// ────────────────
-//   ~3.2 MB   — PriceLevel arrays  (bid + ask)
-//   ~16 MB    — OrderInfo pool     (1 M slots × 16 bytes)
-//   ~800 KB   — Bitmaps            (bid + ask)
+// ----------------
+//   ~3.2 MB   -- PriceLevel arrays  (bid + ask)
+//   ~16 MB    -- OrderInfo pool     (1 M slots x 16 bytes)
+//   ~800 KB   -- Bitmaps            (bid + ask)
 //
 // Hot-path properties
-// ───────────────────
-//   - Zero heap allocation — all storage lives in std::array
+// -------------------
+//   - Zero heap allocation -- all storage lives in std::array
 //   - No branches in the matching loop for the common case
 //   - < 42 ns P99 on a non-isolated 2.5 GHz core
 
 // Order lifetime policies.
 enum class OrderType : uint8_t
 {
-    GTC = 0,  // Good-Till-Cancelled  — posts to book if not fully filled
-    IOC = 1,  // Immediate-or-Cancel  — unfilled remainder is cancelled
-    FOK = 2,  // Fill-or-Kill         — entire quantity must fill or cancel
+    GTC = 0,  // Good-Till-Cancelled  -- posts to book if not fully filled
+    IOC = 1,  // Immediate-or-Cancel  -- unfilled remainder is cancelled
+    FOK = 2,  // Fill-or-Kill         -- entire quantity must fill or cancel
 };
 
 class OrderBook
@@ -58,7 +58,7 @@ public:
     OrderBook();
 
     // ------------------------------------------------------------------
-    // Core operations — hot path
+    // Core operations -- hot path
     // ------------------------------------------------------------------
 
     // Add a new limit order.  If the order crosses the book, matching begins
@@ -132,19 +132,19 @@ public:
 
 private:
     // ------------------------------------------------------------------
-    // Sentinel value — marks the end of a FIFO linked list.
+    // Sentinel value -- marks the end of a FIFO linked list.
     // ------------------------------------------------------------------
     static constexpr uint32_t NULL_ORDER = std::numeric_limits<uint32_t>::max();
 
     // ------------------------------------------------------------------
     // Per-price-level FIFO queue descriptor  (16 bytes)
     // ------------------------------------------------------------------
-    // head      — ID of the oldest (highest-priority) resting order
-    // tail      — ID of the newest (lowest-priority) resting order
-    // total_qty — sum of live quantities at this level (lazy-cancelled
+    // head      -- ID of the oldest (highest-priority) resting order
+    // tail      -- ID of the newest (lowest-priority) resting order
+    // total_qty -- sum of live quantities at this level (lazy-cancelled
     //             orders subtract their qty immediately on cancel)
     //
-    // Invariant: head == tail == NULL_ORDER  ⟺  level is empty.
+    // Invariant: head == tail == NULL_ORDER  <=>  level is empty.
     struct alignas(16) PriceLevel
     {
         uint32_t head      = NULL_ORDER;
@@ -175,8 +175,8 @@ private:
     // ------------------------------------------------------------------
     // Per-order record  (16 bytes)
     // ------------------------------------------------------------------
-    // next_id   — intrusive linked-list pointer within the price-level queue
-    // side      — 0 = Buy, 1 = Sell
+    // next_id   -- intrusive linked-list pointer within the price-level queue
+    // side      -- 0 = Buy, 1 = Sell
     //
     // 16 bytes fits two records per 32-byte half cache line.
     struct alignas(16) OrderInfo
@@ -189,10 +189,10 @@ private:
         uint8_t  _pad[3]        = {};
     };
 
-    // 1 M order slots — direct index by order_id, O(1), no hash collisions.
+    // 1 M order slots -- direct index by order_id, O(1), no hash collisions.
     std::array<OrderInfo, 1000001> order_lookup{};
 
     uint64_t total_traded_volume   = 0;
-    uint64_t traded_notional_value = 0; // integer sum(price × qty) for hot-path VWAP
+    uint64_t traded_notional_value = 0; // integer sum(price x qty) for hot-path VWAP
 };
 

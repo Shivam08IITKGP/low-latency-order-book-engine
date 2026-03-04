@@ -16,7 +16,7 @@
 #include "threads.h"
 #include "journal.h"
 
-// Global order book (large static allocation — no heap pressure at runtime)
+// Global order book (large static allocation -- no heap pressure at runtime)
 static OrderBook orderBook;
 
 // Initialize the persistent journal (Sequential Message Log)
@@ -42,7 +42,7 @@ int main()
     if (file_memory == MAP_FAILED) { perror("mmap"); return 1; }
 
     // ----------------------------------------------------------------
-    // 2. Calibrate TSC → nanosecond conversion
+    // 2. Calibrate TSC -> nanosecond conversion
     // ----------------------------------------------------------------
     std::cout << "Calibrating CPU frequency...\n";
     g_cycles_per_ns = calibrate_cpu_frequency();
@@ -55,20 +55,20 @@ int main()
     std::thread publisher(publisherThread);
     std::thread network(networkThread, file_memory, sb.st_size);
 
-    // Pin the engine (this thread) to Core 2 — the isolated hot-path core
+    // Pin the engine (this thread) to Core 2 -- the isolated hot-path core
     pinThreadToCore(2);
 
     std::cout << "\n========== SYSTEM CONFIGURATION ==========\n";
     std::cout << "Engine Thread:    Core 2 "
-              << (isCoreIsolated(2) ? "(ISOLATED ✓)" : "(NOT ISOLATED ✗)") << "\n";
+              << (isCoreIsolated(2) ? "(ISOLATED [OK])" : "(NOT ISOLATED [!!])") << "\n";
     std::cout << "Network Thread:   Core 0\n";
     std::cout << "Publisher Thread: Core 3\n";
     std::cout << "Timing Method:    RDTSC (hardware TSC)\n";
 
     if (!isCoreIsolated(2))
     {
-        std::cout << "\n⚠️  WARNING: Core 2 is NOT isolated!\n";
-        std::cout << "    Expected jitter: 400+ μs\n";
+        std::cout << "\n[!!]  WARNING: Core 2 is NOT isolated!\n";
+        std::cout << "    Expected jitter: 400+ us\n";
         std::cout << "    To isolate, add to GRUB config:\n";
         std::cout << "    isolcpus=2 nohz_full=2 rcu_nocbs=2\n";
     }
@@ -82,7 +82,7 @@ int main()
     orderBook.pre_fault_memory();
 
     // ----------------------------------------------------------------
-    // 5. Warmup — prime CPU caches and branch predictors
+    // 5. Warmup -- prime CPU caches and branch predictors
     // ----------------------------------------------------------------
     std::cout << "Warming up caches...\n";
     for (int i = 0; i < 10000; i++)
@@ -97,9 +97,9 @@ int main()
     // 6. Engine loop
     // ----------------------------------------------------------------
     // Timing: Intel-recommended RDTSC sandwich
-    //   Measurement boundary start : CPUID + RDTSC  (~20–30 ns overhead)
-    //   Measurement boundary end   : RDTSCP + LFENCE (~8–10 ns overhead)
-    //   Hot-path timestamps        : rdtsc_fast (no serialisation, ~2–4 ns)
+    //   Measurement boundary start : CPUID + RDTSC  (~20-30 ns overhead)
+    //   Measurement boundary end   : RDTSCP + LFENCE (~8-10 ns overhead)
+    //   Hot-path timestamps        : rdtsc_fast (no serialisation, ~2-4 ns)
 
     uint32_t messageCount = 0;
 
@@ -191,7 +191,7 @@ int main()
         }
         }
 
-        // Unconditional stores — no branch, every message recorded
+        // Unconditional stores -- no branch, every message recorded
         tsc_start_buf[messageCount] = msgStart;
         tsc_end_buf[messageCount]   = rdtsc_end(); // RDTSCP + LFENCE
         msg_type_buf[messageCount]  = view.msg_type;
@@ -212,7 +212,7 @@ int main()
     // ----------------------------------------------------------------
     std::cout << "\n================ PERFORMANCE SUMMARY ================\n";
     std::cout << "Processed messages: " << messageCount << "\n";
-    std::cout << "Total time:         " << totalDuration_us << " μs\n";
+    std::cout << "Total time:         " << totalDuration_us << " us\n";
     std::cout << "Throughput:         "
               << (messageCount * 1000000.0 / totalDuration_us) << " msgs/sec\n";
     std::cout << "Timing method:      CPUID+RDTSC / RDTSCP+LFENCE\n";

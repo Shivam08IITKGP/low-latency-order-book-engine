@@ -179,7 +179,7 @@ std::atomic<bool> stopEngine{false};  // Signal engine to stop after network is 
 //
 // Then run: sudo update-grub && sudo reboot
 //
-// Expected jitter reduction: 400μs → <5μs
+// Expected jitter reduction: 400us -> <5us
 
 // Check if a core is isolated from the kernel scheduler
 bool isCoreIsolated(int core_id)
@@ -223,7 +223,7 @@ bool pinThreadToCore(int core_id)
 // --------------------------------------------------------------------
 // HARDWARE PAUSE - Busy-wait without yielding core
 // --------------------------------------------------------------------
-// HFT Design: Never yield() the core! Context switches cost 1-3μs.
+// HFT Design: Never yield() the core! Context switches cost 1-3us.
 // Instead, use CPU PAUSE instruction to hint we're spinning.
 // This prevents pipeline speculation without giving up the core.
 inline void cpu_pause()
@@ -388,7 +388,7 @@ public:
             double percentage = (100.0 * buckets[i]) / total_samples;
             
             std::cout << std::setw(6) << range_start << "-" 
-                      << std::setw(6) << (range_end == UINT64_MAX ? "∞" : std::to_string(range_end))
+                      << std::setw(6) << (range_end == UINT64_MAX ? "inf" : std::to_string(range_end))
                       << " ns: " << std::setw(8) << buckets[i] 
                       << " (" << std::fixed << std::setprecision(2) 
                       << percentage << "%)";
@@ -397,7 +397,7 @@ public:
             int bar_length = static_cast<int>(percentage / 2);
             std::cout << " ";
             for (int j = 0; j < bar_length; j++)
-                std::cout << "█";
+                std::cout << "#";
             std::cout << "\n";
         }
         
@@ -412,13 +412,13 @@ public:
         std::cout << "Jitter (Max - Min): " << jitter << " ns\n";
         
         if (jitter < 1000)
-            std::cout << "✓ Excellent: Very low jitter\n";
+            std::cout << "[OK] Excellent: Very low jitter\n";
         else if (jitter < 5000)
-            std::cout << "✓ Good: Acceptable jitter\n";
+            std::cout << "[OK] Good: Acceptable jitter\n";
         else if (jitter < 10000)
-            std::cout << "⚠ Warning: High jitter detected\n";
+            std::cout << "[!!] Warning: High jitter detected\n";
         else
-            std::cout << "✗ Critical: Very high jitter (possible cache miss/page fault)\n";
+            std::cout << "[!!] Critical: Very high jitter (possible cache miss/page fault)\n";
         
         std::cout << "=====================================\n";
     }
@@ -646,8 +646,10 @@ public:
     // --------------------------------------------------------------------
     // NEW ORDER ('N')
     // --------------------------------------------------------------------
-    void addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity)
+    void addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity,
+                  uint32_t participant_id = 0)
     {
+        (void)participant_id; // STP not implemented in this standalone class
         // Store order details for future lookup
         // Convert side: 'B' -> 0, 'S' -> 1 for compact bitfield storage
         order_lookup[id] = {price, quantity, static_cast<uint64_t>(side == 'B' ? 0 : 1)};
@@ -991,7 +993,7 @@ OrderBook orderBook;
 // NETWORK THREAD - Zero-copy packet producer (simulates DMA NIC)
 // --------------------------------------------------------------------
 // Production HFT: NIC writes packets directly to ring buffer via DMA
-// Engine reads pointer, never copies payload → eliminates memcpy overhead
+// Engine reads pointer, never copies payload -> eliminates memcpy overhead
 void networkThread(char* file_memory, size_t file_size)
 {
     // Pin to Core 0
@@ -1133,15 +1135,15 @@ int main()
     pinThreadToCore(2);
     
     std::cout << "\n========== SYSTEM CONFIGURATION ==========\n";
-    std::cout << "Engine Thread:    Core 2 " << (isCoreIsolated(2) ? "(ISOLATED ✓)" : "(NOT ISOLATED ✗)") << "\n";
+    std::cout << "Engine Thread:    Core 2 " << (isCoreIsolated(2) ? "(ISOLATED [OK])" : "(NOT ISOLATED [!!])") << "\n";
     std::cout << "Network Thread:   Core 0\n";
     std::cout << "Publisher Thread: Core 3\n";
     std::cout << "Timing Method:    RDTSC (hardware TSC)\n";
     
     if (!isCoreIsolated(2))
     {
-        std::cout << "\n⚠️  WARNING: Core 2 is NOT isolated!\n";
-        std::cout << "    Expected jitter: 400+ μs\n";
+        std::cout << "\n  WARNING: Core 2 is NOT isolated!\n";
+        std::cout << "    Expected jitter: 400+ us\n";
         std::cout << "    To isolate: Add to GRUB config:\n";
         std::cout << "    isolcpus=2 nohz_full=2 rcu_nocbs=2\n";
     }
@@ -1156,7 +1158,7 @@ int main()
     std::cout << "Warming up caches...\n";
     for (int i = 0; i < 10000; i++)
     {
-        orderBook.addOrder(i, 'B', i % 1000, 10);
+        orderBook.addOrder(i, 'B', i % 1000, 10, i % 5);
         orderBook.cancelOrder(i);
     }
     std::cout << "Warmup complete. Starting benchmark.\n";
@@ -1223,7 +1225,8 @@ int main()
                 o->order_id,
                 o->side,
                 o->price,
-                o->quantity);
+                o->quantity,
+                0); // participant_id = 0 (No STP by default for simulation)
             break;
         }
         case 'X':
