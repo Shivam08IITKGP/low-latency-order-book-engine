@@ -1,0 +1,128 @@
+Calibrating CPU frequency...
+CPU Frequency: 2498.44 MHz
+
+[CPU] Thread pinned to core 2[CPU] Thread pinned to core 3
+
+========== SYSTEM CONFIGURATION ==========
+Engine Thread:    Core 2 [CPU] Thread pinned to core 0(ISOLATED [OK])
+Network Thread:   Core 0
+Publisher Thread: Core 3
+Timing Method:    RDTSC (hardware TSC)
+==========================================
+
+ [WARNING: NOT ISOLATED]
+[PUBLISHER] Thread started
+ [WARNING: NOT ISOLATED]
+Warming up caches...
+Warmup complete. Starting benchmark.
+
+Total messages in file: 100001
+[NETWORK] Thread started (zero-copy mode)
+[NETWORK] Thread stopping. All messages produced.
+
+================ PERFORMANCE SUMMARY ================
+Processed messages: 100001
+Total time:         12099 us
+Throughput:         8265228.53 msgs/sec
+Timing method:      CPUID+RDTSC / RDTSCP+LFENCE
+CPU Frequency:      2498.44 MHz
+====================================================
+
+========== LATENCY HISTOGRAM ==========
+Min: 40 ns
+Max: 5160 ns (JITTER: 5120 ns)
+Bucket Size: 10 ns
+
+    40-    50 ns:    10697 (10.70%) █████
+    50-    60 ns:    61837 (61.84%) ██████████████████████████████
+    60-    70 ns:    21273 (21.27%) ██████████
+    70-    80 ns:     5366 (5.37%) ██
+    80-    90 ns:      384 (0.38%) 
+    90-   100 ns:      155 (0.15%) 
+   100-   110 ns:      103 (0.10%) 
+   110-   120 ns:       26 (0.03%) 
+   120-   130 ns:       21 (0.02%) 
+   130-   140 ns:       16 (0.02%) 
+   140-   150 ns:        4 (0.00%) 
+   150-   160 ns:        9 (0.01%) 
+   160-   170 ns:        8 (0.01%) 
+   170-   180 ns:        3 (0.00%) 
+   180-   190 ns:        7 (0.01%) 
+   190-   200 ns:        4 (0.00%) 
+   200-   210 ns:        2 (0.00%) 
+   210-   220 ns:        4 (0.00%) 
+   220-   230 ns:        2 (0.00%) 
+   230-   240 ns:        2 (0.00%) 
+   240-   250 ns:        2 (0.00%) 
+   250-   260 ns:        1 (0.00%) 
+   270-   280 ns:        1 (0.00%) 
+   280-   290 ns:        1 (0.00%) 
+   290-   300 ns:        1 (0.00%) 
+   320-   330 ns:        2 (0.00%) 
+   330-   340 ns:        2 (0.00%) 
+   340-   350 ns:        1 (0.00%) 
+   350-   360 ns:        1 (0.00%) 
+   360-   370 ns:        1 (0.00%) 
+   370-   380 ns:        1 (0.00%) 
+   400-   410 ns:        1 (0.00%) 
+   420-   430 ns:        1 (0.00%) 
+   430-   440 ns:        1 (0.00%) 
+   440-   450 ns:        2 (0.00%) 
+   450-   460 ns:        2 (0.00%) 
+   460-   470 ns:        2 (0.00%) 
+   470-   480 ns:        1 (0.00%) 
+   500-   510 ns:        1 (0.00%) 
+   520-   530 ns:        1 (0.00%) 
+   530-   540 ns:        2 (0.00%) 
+   590-   600 ns:        1 (0.00%) 
+   610-   620 ns:        1 (0.00%) 
+   620-   630 ns:        1 (0.00%) 
+   630-   640 ns:        1 (0.00%) 
+   640-   650 ns:        1 (0.00%) 
+   670-   680 ns:        1 (0.00%) 
+   680-   690 ns:        1 (0.00%) 
+   720-   730 ns:        1 (0.00%) 
+   730-   740 ns:        2 (0.00%) 
+   750-   760 ns:        1 (0.00%) 
+   760-   770 ns:        1 (0.00%) 
+   780-   790 ns:        1 (0.00%) 
+   790-   800 ns:        1 (0.00%) 
+   880-   890 ns:        3 (0.00%) 
+   890-   900 ns:        1 (0.00%) 
+   930-   940 ns:        1 (0.00%) 
+  1000-   ∞ ns:       31 (0.03%) 
+
+Total Samples: 100001
+=======================================
+
+========== JITTER ANALYSIS ==========
+Jitter (Max - Min): 5120 ns
+⚠ Warning: High jitter detected
+=====================================
+
+========== DETAILED LATENCY REPORT ==========
+Samples: 100001
+Mean: 57 ns  StdDev: 50 ns
+P50: 55 ns  P90: 66 ns  P99: 78 ns  P99.9: 173 ns
+Spikes >1us: 31  >10us: 0  >100us: 0
+Top spikes (latency ns, sample index, msg type):
+  5160 ns, idx=53075, type=N
+  4764 ns, idx=37475, type=N
+  4548 ns, idx=29819, type=N
+  4253 ns, idx=6975, type=N
+  4115 ns, idx=53046, type=N
+  4072 ns, idx=37070, type=N
+  3708 ns, idx=75645, type=N
+  3554 ns, idx=88536, type=N
+  3484 ns, idx=88893, type=N
+  3380 ns, idx=26638, type=N
+============================================
+Final Book Size -> Bids: 100001 | Asks: 100001
+Total Traded Volume = 4000000
+VWAP = 5004.00
+Snapshot saved to orderbook_snapshot.bin
+
+Stopping threads...
+Network thread stopped.
+[PUBLISHER] Thread stopping. Published 120000 updates.
+Publisher thread stopped.

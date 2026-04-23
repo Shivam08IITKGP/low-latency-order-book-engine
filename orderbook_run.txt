@@ -1,0 +1,138 @@
+Calibrating CPU frequency...
+CPU Frequency: 2497.05 MHz
+
+[CPU] Thread pinned to core 2 [WARNING: NOT ISOLATED]
+[CPU] Thread pinned to core 3Engine thread: SCHED_FIFO unavailable (run as root for best latency)
+
+========== SYSTEM CONFIGURATION ==========
+Engine Thread:    Core 2 (NOT ISOLATED [!!])
+Network Thread:   Core 0
+Publisher Thread: Core 3
+Timing Method:    RDTSC (hardware TSC)
+
+[!!]  WARNING: Core 2 is NOT isolated!
+    Expected jitter: 400+ us
+    To isolate, add to GRUB config:
+    isolcpus=2 nohz_full=2 rcu_nocbs=2
+==========================================
+
+[CPU] Thread pinned to core 0 [WARNING: NOT ISOLATED]
+[PUBLISHER] Thread started
+ [WARNING: NOT ISOLATED]
+Warming up caches...
+Warmup complete. Starting benchmark.
+
+Total messages in file: 100001
+[INFO] PMU counters unavailable (set perf_event_paranoid <= 1)
+[NETWORK] Thread started (zero-copy mode)
+[NETWORK] Thread stopping. All messages produced.
+
+================ PERFORMANCE SUMMARY ================
+Processed messages: 100001
+Total time:         7064 us
+Throughput:         14156426.95 msgs/sec
+Timing method:      CPUID+RDTSC / RDTSCP+LFENCE
+CPU Frequency:      2497.05 MHz
+====================================================
+
+========== LATENCY HISTOGRAM ==========
+Min: 26 ns
+Max: 21233 ns (JITTER: 21207 ns)
+Bucket Size: 10 ns
+
+    20-    30 ns:     4020 (4.02%) ██
+    30-    40 ns:    94323 (94.32%) ███████████████████████████████████████████████
+    40-    50 ns:      554 (0.55%) 
+    50-    60 ns:      260 (0.26%) 
+    60-    70 ns:      150 (0.15%) 
+    70-    80 ns:       93 (0.09%) 
+    80-    90 ns:       94 (0.09%) 
+    90-   100 ns:       85 (0.08%) 
+   100-   110 ns:       97 (0.10%) 
+   110-   120 ns:       71 (0.07%) 
+   120-   130 ns:       59 (0.06%) 
+   130-   140 ns:       38 (0.04%) 
+   140-   150 ns:       25 (0.02%) 
+   150-   160 ns:       18 (0.02%) 
+   160-   170 ns:       16 (0.02%) 
+   170-   180 ns:       10 (0.01%) 
+   180-   190 ns:        7 (0.01%) 
+   190-   200 ns:        6 (0.01%) 
+   200-   210 ns:        7 (0.01%) 
+   210-   220 ns:        6 (0.01%) 
+   220-   230 ns:        3 (0.00%) 
+   230-   240 ns:        2 (0.00%) 
+   240-   250 ns:        2 (0.00%) 
+   250-   260 ns:        5 (0.00%) 
+   260-   270 ns:        8 (0.01%) 
+   270-   280 ns:        2 (0.00%) 
+   280-   290 ns:        2 (0.00%) 
+   290-   300 ns:        2 (0.00%) 
+   320-   330 ns:        1 (0.00%) 
+   330-   340 ns:        1 (0.00%) 
+   350-   360 ns:        2 (0.00%) 
+   370-   380 ns:        1 (0.00%) 
+   420-   430 ns:        2 (0.00%) 
+   430-   440 ns:        2 (0.00%) 
+   440-   450 ns:        2 (0.00%) 
+   460-   470 ns:        3 (0.00%) 
+   480-   490 ns:        1 (0.00%) 
+   520-   530 ns:        1 (0.00%) 
+   570-   580 ns:        2 (0.00%) 
+   600-   610 ns:        1 (0.00%) 
+   610-   620 ns:        1 (0.00%) 
+   730-   740 ns:        1 (0.00%) 
+   780-   790 ns:        1 (0.00%) 
+   880-   890 ns:        1 (0.00%) 
+   920-   930 ns:        1 (0.00%) 
+  1000-   ∞ ns:       12 (0.01%) 
+
+Total Samples: 100001
+=======================================
+
+========== JITTER ANALYSIS ==========
+Jitter (Max - Min): 21207 ns
+✗ Critical: Very high jitter (possible cache miss/page fault)
+=====================================
+
+========== DETAILED LATENCY REPORT ==========
+Samples: 100001
+Mean: 34 ns  StdDev: 124 ns
+P50: 32 ns  P90: 35 ns  P99: 52 ns  P99.9: 168 ns
+Spikes >1us: 12  >10us: 4  >100us: 0
+Top spikes (latency ns, sample index, msg type):
+  21233 ns, idx=52701, type=N
+  20783 ns, idx=23756, type=N
+  19343 ns, idx=38365, type=N
+  12437 ns, idx=66947, type=N
+  9687 ns, idx=68797, type=N
+  3665 ns, idx=8425, type=N
+  3408 ns, idx=66625, type=N
+  3070 ns, idx=94141, type=N
+  2171 ns, idx=80467, type=N
+  1987 ns, idx=68481, type=N
+============================================
+
+===== PER-TYPE LATENCY BREAKDOWN =====
+Type    Count     Mean ns   P50 ns    P99 ns    P99.9 ns
+----------------------------------------------------------
+N       100000    34        32        52        168
+T       1         293       293       293       293
+==========================================================
+
+===== Engine Hot Loop =====
+Instructions:         0
+Cycles:               0
+IPC:                  0.00
+L1D cache miss:       0  (0 miss/msg)
+Branch miss:          0  (0 miss/msg)
+==========================
+Final Book Size -> Bids: 100001 | Asks: 100001
+Total Traded Volume = 4000000
+VWAP = 5004.00
+Snapshot saved to orderbook_snapshot.bin
+
+Stopping threads...
+Network thread stopped.
+[PUBLISHER] Thread stopping. Published 120000 updates.
+Publisher thread stopped.

@@ -11,7 +11,7 @@ struct UpdateMessage
 {
     uint64_t order_id;      // Order identifier
     uint64_t price;         // Price level
-    uint64_t timestamp_ns;  // Event timestamp (hardware TSC)
+    uint64_t timestamp_raw; // Event timestamp (hardware TSC raw cycles)
     uint32_t quantity;      // Quantity involved
     char     type;          // 'N'=New  'X'=Cancel  'T'=Trade  'M'=Modify
     char     side;          // 'B'=Buy  'S'=Sell

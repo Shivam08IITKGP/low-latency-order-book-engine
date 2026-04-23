@@ -1,28 +1,54 @@
 #include <iostream>
 #include <fstream>
+#include <string>
+#include <vector>
 #include "common.h"
 
-int main() {
-    std::ofstream outfile("market_data.bin", std::ios::binary);
+/**
+ * SYNTHETIC MARKET DATA GENERATOR
+ * 
+ * Generates a binary stream of StreamHeader + OrderMessage packets
+ * to simulate exchange traffic.
+ */
 
-    // --- Message 1: New Buy Order ---
-    for (int i = 0; i < 100000; i++) {
-        // Generate a New Order
-        StreamHeader h = {sizeof(OrderMessage), (uint32_t)i, 0};
-        OrderMessage o = {'N', (uint64_t)i, (i % 2 == 0 ? 'B' : 'S'), 100, (uint64_t)(5000 + (i % 10))};
+int main(int argc, char* argv[])
+{
+    uint32_t count = 1000000;
+    if (argc > 1) {
+        try {
+            count = std::stoul(argv[1]);
+        } catch (...) {
+            std::cerr << "Invalid count, defaulting to 1M\n";
+        }
+    }
+
+    std::ofstream outfile("market_data.bin", std::ios::binary);
+    if (!outfile) {
+        std::cerr << "Fatal: Could not open market_data.bin\n";
+        return 1;
+    }
+
+    std::cout << "Generating " << count << " messages...\n";
+
+    for (uint32_t i = 0; i < count; i++) {
+        StreamHeader h = {sizeof(OrderMessage), i, 0};
         
+        char side = (i % 2 == 0) ? 'B' : 'S';
+        
+        // Base prices
+        uint64_t price = (side == 'B') ? 5000 : 5010;
+        
+        // Periodic matching: Cross the spread every 10 messages
+        if (i % 10 == 0) {
+            price = (side == 'B') ? 5010 : 4990;
+        }
+
+        OrderMessage o = {'N', static_cast<uint64_t>(i + 1), side, 100, price};
         outfile.write(reinterpret_cast<char*>(&h), sizeof(h));
         outfile.write(reinterpret_cast<char*>(&o), sizeof(o));
     }
 
-    // --- Message 2: Trade Execution ---
-    StreamHeader h2 = {sizeof(TradeMessage), 2, 0};
-    TradeMessage t1 = {'T', 101, 205, 50, 5000}; // Trade 50 units @ 50.00
-
-    outfile.write(reinterpret_cast<char*>(&h2), sizeof(h2));
-    outfile.write(reinterpret_cast<char*>(&t1), sizeof(t1));
-
     outfile.close();
-    std::cout << "Generated market_data.bin successfully.\n";
+    std::cout << "Successfully generated market_data.bin (" << count << " messages).\n";
     return 0;
 }

@@ -110,15 +110,16 @@ private:
         char     type;
     };
 
-    static constexpr size_t MAX_SAMPLES = 200000;
+    static constexpr size_t MAX_SAMPLES = 10000005;
     std::array<Sample, MAX_SAMPLES> samples{};
     size_t count = 0;
 
 public:
-    // Inline, zero-branch hot-path write
+    // Inline, zero-branch hot-path write (with safety check)
     inline void addSample(uint64_t latency_ns, char type, uint32_t index)
     {
-        samples[count++] = {latency_ns, index, type};
+        if (count < MAX_SAMPLES)
+            samples[count++] = {latency_ns, index, type};
     }
 
     void printReport() const

@@ -1,0 +1,117 @@
+Calibrating CPU frequency...
+CPU Frequency: 2498.12 MHz
+
+[CPU] Thread pinned to core 2
+
+========== SYSTEM CONFIGURATION ==========
+Engine Thread:    Core 2 (ISOLATED [OK])
+Network Thread:   Core 0
+Publisher Thread: Core 3
+Timing Method:    RDTSC (hardware TSC)
+==========================================
+
+[CPU] Thread pinned to core 3 [WARNING: NOT ISOLATED]
+[PUBLISHER] Thread started
+[CPU] Thread pinned to core 0 [WARNING: NOT ISOLATED]
+Warming up caches...
+Warmup complete. Starting benchmark.
+
+Total messages in file: 100001
+[NETWORK] Thread started (zero-copy mode)
+[NETWORK] Thread stopping. All messages produced.
+Benchmark complete. Processing results...
+
+================ PERFORMANCE SUMMARY ================
+Processed messages: 100001
+Total time:         5334 us
+Throughput:         18747844.02 msgs/sec
+Timing method:      CPUID+RDTSC / RDTSCP+LFENCE
+CPU Frequency:      2498.12 MHz
+====================================================
+
+========== LATENCY HISTOGRAM ==========
+Min: 20 ns
+Max: 23039 ns (JITTER: 23019 ns)
+Bucket Size: 10 ns
+
+    20-    30 ns:    28242 (28.24%) ██████████████
+    30-    40 ns:    62625 (62.62%) ███████████████████████████████
+    40-    50 ns:     6288 (6.29%) ███
+    50-    60 ns:     2027 (2.03%) █
+    60-    70 ns:      592 (0.59%) 
+    70-    80 ns:       70 (0.07%) 
+    80-    90 ns:       17 (0.02%) 
+    90-   100 ns:       19 (0.02%) 
+   100-   110 ns:       13 (0.01%) 
+   110-   120 ns:        9 (0.01%) 
+   120-   130 ns:        7 (0.01%) 
+   130-   140 ns:        8 (0.01%) 
+   140-   150 ns:        7 (0.01%) 
+   150-   160 ns:        5 (0.00%) 
+   160-   170 ns:        2 (0.00%) 
+   170-   180 ns:        3 (0.00%) 
+   180-   190 ns:        1 (0.00%) 
+   210-   220 ns:        2 (0.00%) 
+   220-   230 ns:        1 (0.00%) 
+   230-   240 ns:        1 (0.00%) 
+   240-   250 ns:        1 (0.00%) 
+   250-   260 ns:        1 (0.00%) 
+   260-   270 ns:        1 (0.00%) 
+   290-   300 ns:        1 (0.00%) 
+   300-   310 ns:        1 (0.00%) 
+   310-   320 ns:        1 (0.00%) 
+   380-   390 ns:        1 (0.00%) 
+   390-   400 ns:        1 (0.00%) 
+   400-   410 ns:        1 (0.00%) 
+   480-   490 ns:        1 (0.00%) 
+   530-   540 ns:        1 (0.00%) 
+   550-   560 ns:        1 (0.00%) 
+   610-   620 ns:        1 (0.00%) 
+   620-   630 ns:        1 (0.00%) 
+   630-   640 ns:        1 (0.00%) 
+   680-   690 ns:        1 (0.00%) 
+   700-   710 ns:        1 (0.00%) 
+   730-   740 ns:        1 (0.00%) 
+   770-   780 ns:        1 (0.00%) 
+   790-   800 ns:        1 (0.00%) 
+   830-   840 ns:        1 (0.00%) 
+   890-   900 ns:        1 (0.00%) 
+   910-   920 ns:        1 (0.00%) 
+   920-   930 ns:        1 (0.00%) 
+   970-   980 ns:        1 (0.00%) 
+  1000-   ∞ ns:       37 (0.04%) 
+
+Total Samples: 100001
+=======================================
+
+========== JITTER ANALYSIS ==========
+Jitter (Max - Min): 23019 ns
+✗ Critical: Very high jitter (possible cache miss/page fault)
+=====================================
+
+========== DETAILED LATENCY REPORT ==========
+Samples: 100001
+Mean: 33 ns  StdDev: 113 ns
+P50: 30 ns  P90: 39 ns  P99: 58 ns  P99.9: 112 ns
+Spikes >1us: 37  >10us: 3  >100us: 0
+Top spikes (latency ns, sample index, msg type):
+  23039 ns, idx=97632, type=N
+  11793 ns, idx=36657, type=N
+  10300 ns, idx=77052, type=N
+  8927 ns, idx=57052, type=N
+  8126 ns, idx=1474, type=N
+  7468 ns, idx=19733, type=N
+  7351 ns, idx=61158, type=N
+  5410 ns, idx=26771, type=N
+  5045 ns, idx=99591, type=N
+  4521 ns, idx=10058, type=N
+============================================
+Final Book Size -> Bids: 100001 | Asks: 100001
+Total Traded Volume = 1000100
+VWAP = 5010.00
+Snapshot saved to orderbook_snapshot.bin
+
+Stopping threads...
+Network thread stopped.
+[PUBLISHER] Thread stopping. Published 120001 updates.
+Publisher thread stopped.
