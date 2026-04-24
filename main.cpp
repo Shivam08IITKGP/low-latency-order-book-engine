@@ -22,7 +22,6 @@
 // Global instances for inter-thread communication
 OrderBook orderBook;
 MappedJournal<UpdateMessage, 10000000> persistentJournal("event_journal.bin");
-LatencyRecorder g_latency_recorder;
 
 int main(int argc, char* argv[])
 {
@@ -91,7 +90,7 @@ int main(int argc, char* argv[])
             if (view.msg_type == 'N') {
                 orderBook.addOrder(msg->order_id, msg->side, msg->price, msg->quantity);
             } else if (view.msg_type == 'X') {
-                orderBook.cancelOrder(msg->order_id);
+                orderBook.handleCancel(msg->order_id);
             }
 
             uint64_t ts_end = rdtsc_end();
@@ -119,7 +118,7 @@ int main(int argc, char* argv[])
               << "====================================================\n";
 
     g_latency_recorder.printReport();
-    orderBook.printTopOfBook();
+    // orderBook.printTopOfBook();
 
     // Cleanup
     stopPublisher.store(true, std::memory_order_release);
@@ -127,7 +126,7 @@ int main(int argc, char* argv[])
     pubThread.join();
     munmap(file_memory, file_size);
     close(fd);
-    orderBook.saveSnapshot("orderbook_snapshot.bin");
+    // orderBook.saveSnapshot("orderbook_snapshot.bin");
 
     return 0;
 }

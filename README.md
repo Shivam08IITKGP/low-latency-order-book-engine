@@ -6,10 +6,10 @@ A high-performance C++ matching engine designed for sub-microsecond event proces
 
 | Metric | Result |
 | :--- | :--- |
-| **P50 Latency (Median)** | **30 ns** |
-| **Mean Latency** | **33 ns** |
-| **P99 Latency** | **58 ns** |
-| **Throughput** | **15.2M messages/sec** |
+| **P50 Latency (Median)** | **21 ns** |
+| **Mean Latency** | **34 ns** |
+| **P99 Latency** | **43 ns** |
+| **Throughput** | **19.2M messages/sec** |
 
 *Note: Benchmarks performed with Core 2 isolated via `isolcpus`.*
 
@@ -26,6 +26,8 @@ The engine utilizes a three-thread pipelined architecture to maximize instructio
 *   **Price-Time Priority (FIFO)**: Implemented via intrusive singly-linked lists per price level.
 *   **O(1) Order Lookup**: Direct-indexed order pool (10M capacity).
 *   **O(1) Price Search**: Hardware bitmasks (`__builtin_ctzll`) for instant best-bid/ask identification.
+*   **Branchless Dispatch**: `cancelOrder` utilizes a function pointer table and C++ templates to eliminate branches in the cancellation hot path.
+*   **Cache Optimization**: `SideLevels` (bid/ask arrays) are `alignas(64)` to ensure no false sharing and optimal cache line utilization.
 *   **Zero Heap Allocation**: All memory is pre-allocated and pre-faulted at startup to eliminate demand-paging jitter.
 *   **Lock-Free SPSC Queues**: Cache-line aligned Single-Producer Single-Consumer ring buffers for inter-thread communication.
 *   **Serialized Timing**: `LFENCE + RDTSC` / `RDTSCP + LFENCE` sandwich for cycle-accurate measurement.
