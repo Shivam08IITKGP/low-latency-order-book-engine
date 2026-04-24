@@ -22,7 +22,7 @@ OrderBook::OrderBook()
     std::fill(ask_bitmap.begin(), ask_bitmap.end(), 0);
 }
 
-void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity,uint32_t participant_id, OrderType type)
+void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quantity, uint32_t participant_id, OrderType type)
 {
     if (price > MAX_PRICE || price == 0 || id >= MAX_ORDERS) // Added ID check
         return;
