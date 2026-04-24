@@ -35,8 +35,8 @@ int main(int argc, char* argv[])
 
     std::cout << "========== SYSTEM CONFIGURATION ==========\n"
               << "Engine Thread:    Core 2 " << (isCoreIsolated(2) ? "(ISOLATED [OK])" : "[WARNING: NOT ISOLATED]") << "\n"
-              << "Network Thread:   Core 0\n"
-              << "Publisher Thread: Core 3\n"
+              << "Network Thread:   Core 0 " << (isCoreIsolated(0) ? "(ISOLATED [OK])" : "[WARNING: NOT ISOLATED]") << "\n"
+              << "Publisher Thread: Core 3 " << (isCoreIsolated(3) ? "(ISOLATED [OK])" : "[WARNING: NOT ISOLATED]") << "\n"
               << "==========================================\n\n";
 
     // Memory mapping of market data

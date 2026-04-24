@@ -6,10 +6,10 @@ A high-performance C++ matching engine designed for sub-microsecond event proces
 
 | Metric | Result |
 | :--- | :--- |
-| **P50 Latency (Median)** | **21 ns** |
-| **Mean Latency** | **34 ns** |
-| **P99 Latency** | **43 ns** |
-| **Throughput** | **19.2M messages/sec** |
+| **P50 Latency (Median)** | **22 ns** |
+| **Mean Latency** | **32 ns** |
+| **P99 Latency** | **41 ns** |
+| **Throughput** | **20.1M messages/sec** |
 
 *Note: Benchmarks performed with Core 2 isolated via `isolcpus`.*
 
