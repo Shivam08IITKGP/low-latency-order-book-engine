@@ -3,6 +3,7 @@ project(OrderBook CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS OFF)
 
 # Aggressive optimisation flags
 add_compile_options(-O3 -march=native -mtune=native -fno-omit-frame-pointer)
