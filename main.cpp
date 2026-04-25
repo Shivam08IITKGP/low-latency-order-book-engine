@@ -85,6 +85,7 @@ int main(int argc, char* argv[])
         PacketView view;
         if (inputQueue.pop(view)) {
             uint64_t ts_start = rdtsc_start();
+            __builtin_prefetch(view.payload, 0 /* read-only */, 3 /* highest urgency */);
             
             const auto* msg = reinterpret_cast<const OrderMessage*>(view.payload);
             if (view.msg_type == 'N') {

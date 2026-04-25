@@ -26,3 +26,6 @@ cmake_install.cmake
 *.swp
 *.swo
 orderbook
+orderbook_lto
+orderbook_pgo*
+pgo_data/

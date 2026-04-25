@@ -6,11 +6,15 @@ ORDERBOOK_SRCS = main.cpp timing.cpp cpu_utils.cpp messages.cpp order_book.cpp t
 ORDERBOOK_OBJS = $(ORDERBOOK_SRCS:.cpp=.o)
 
 TARGETS = orderbook data_gen
+LTO_TARGET = orderbook_lto
 
 all: $(TARGETS)
 
 orderbook: $(ORDERBOOK_OBJS)
 	$(CXX) $(CXXFLAGS) $(ORDERBOOK_OBJS) -o orderbook
+
+lto:
+	$(CXX) $(CXXFLAGS) -flto $(ORDERBOOK_SRCS) -o $(LTO_TARGET)
 
 data_gen: data_gen.cpp common.h
 	$(CXX) $(CXXFLAGS) data_gen.cpp -o data_gen
@@ -19,6 +23,6 @@ data_gen: data_gen.cpp common.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGETS) *.o
+	rm -f $(TARGETS) $(LTO_TARGET) *.o
 
-.PHONY: all clean
+.PHONY: all clean lto
