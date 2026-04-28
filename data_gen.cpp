@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
     std::cout << "Generating " << count << " messages...\n";
 
     for (uint32_t i = 0; i < count; i++) {
-        StreamHeader h = {sizeof(OrderMessage), i, 'N', 0};
+        StreamHeader h = {i, static_cast<uint16_t>(sizeof(OrderMessage)), 'N', 0};
         
         char side = (i % 2 == 0) ? 'B' : 'S';
         
