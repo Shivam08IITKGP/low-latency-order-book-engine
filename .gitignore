@@ -29,3 +29,6 @@ orderbook
 orderbook_lto
 orderbook_pgo*
 pgo_data/
+*.gcda
+*.gcno
+data_gen_burst*
