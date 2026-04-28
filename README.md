@@ -6,10 +6,10 @@ A high-performance C++ matching engine designed for sub-microsecond event proces
 
 | Metric | Result |
 | :--- | :--- |
-| **P50 Latency (Median)** | **22 ns** |
-| **Mean Latency** | **32 ns** |
+| **P50 Latency (Median)** | **21 ns** |
+| **Mean Latency** | **31 ns** |
 | **P99 Latency** | **41 ns** |
-| **Throughput** | **20.1M messages/sec** |
+| **Throughput** | **20.2M messages/sec** |
 
 *Note: Benchmarks performed with Core 2 isolated via `isolcpus`.*
 
@@ -26,6 +26,7 @@ The engine utilizes a three-thread pipelined architecture to maximize instructio
 *   **Price-Time Priority (FIFO)**: Implemented via intrusive singly-linked lists per price level.
 *   **O(1) Order Lookup**: Direct-indexed order pool (10M capacity).
 *   **O(1) Price Search**: Hardware bitmasks (`__builtin_ctzll`) for instant best-bid/ask identification.
+*   **Hardware Sympathy (16-byte OrderInfo)**: `OrderInfo` struct is bit-packed into exactly 16 bytes. This maximizes cache density (4 orders per 64-byte cache line) and fits a 750k order book entirely within a 12MB L3 cache.
 *   **Branchless Dispatch**: `cancelOrder` utilizes a function pointer table and C++ templates to eliminate branches in the cancellation hot path.
 *   **Cache Optimization**: `SideLevels` (bid/ask arrays) are `alignas(64)` to ensure no false sharing and optimal cache line utilization.
 *   **Zero Heap Allocation**: All memory is pre-allocated and pre-faulted at startup to eliminate demand-paging jitter.

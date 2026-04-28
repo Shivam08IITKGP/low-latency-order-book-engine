@@ -15,7 +15,7 @@ def extract(line, pattern):
     return float(match.group(1)) if match else None
 
 for i in range(20):
-    result = subprocess.run(['./orderbook'], capture_output=True, text=True)
+    result = subprocess.run(['./orderbook_lto'], capture_output=True, text=True)
     output = result.stdout
     
     tp = extract(output, r'Throughput:\s+([\d.]+)\s+msgs/sec')

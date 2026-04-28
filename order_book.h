@@ -100,12 +100,16 @@ class OrderBook
 
     struct alignas(16) OrderInfo
     {
-        uint32_t price = 0;
+        uint32_t price_and_side = 0;
         uint32_t quantity = 0;
         uint32_t next_id = NULL_ORDER;
         uint32_t participant_id = 0;
-        uint8_t side = 0; // 0=Buy, 1=Sell
-        uint8_t _pad[3] = {};
+
+        inline uint32_t get_price() const { return price_and_side & 0x7FFFFFFF; }
+        inline uint8_t get_side() const { return (price_and_side >> 31); }
+        inline void set_price_side(uint32_t p, uint8_t s) { 
+            price_and_side = (static_cast<uint32_t>(s) << 31) | (p & 0x7FFFFFFF); 
+        }
     };
 
     // ID-indexed order pool
@@ -121,10 +125,10 @@ template <int side> void OrderBook::cancelOrder(uint64_t id)
         return;
 
     // Compile-time indexing! No branches, no runtime arithmetic for 'side'
-    sides[side].levels[info.price].total_qty -= info.quantity;
+    sides[side].levels[info.get_price()].total_qty -= info.quantity;
 
     constexpr char side_char = (side == 0) ? 'B' : 'S';
-    UpdateMessage msg{id, info.price, get_timestamp_raw(), info.quantity, 'X', side_char};
+    UpdateMessage msg{id, info.get_price(), get_timestamp_raw(), info.quantity, 'X', side_char};
     updateBuffer.push(msg);
 
     info.quantity = 0;

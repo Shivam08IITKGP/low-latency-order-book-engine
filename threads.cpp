@@ -30,14 +30,19 @@ void networkThread(char* file_memory, size_t file_size)
 
     while (offset < file_size && !stopNetworkThread.load(std::memory_order_acquire))
     {
+        // point to the header of messages one by one from the file_memory
+        // we use reinterpret_cast here because we need to treat the bytes
+        // as if they were StreamHeader object
         auto* header = reinterpret_cast<StreamHeader*>(file_memory + offset);
 
         // Build a zero-copy view: just a pointer + cached type byte
         PacketView view;
-        view.msg_type = *(file_memory + offset + sizeof(StreamHeader));
+        view.msg_type = header->msg_type; // N, X i.e. New or Cancel order
         view.payload  =   file_memory + offset + sizeof(StreamHeader);
 
         // Busy-wait if the engine hasn't drained the queue yet
+        // Means we are waiting for the engine to process the
+        // messages and create some empty space in the queue        
         while (!inputQueue.push(view))
             cpu_pause();
 

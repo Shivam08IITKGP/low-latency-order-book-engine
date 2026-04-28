@@ -99,9 +99,8 @@ void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quanti
         if (remaining > 0 && type == OrderType::GTC)
         {
             OrderInfo &info = order_lookup[id];
-            info.price = static_cast<uint32_t>(price);
+            info.set_price_side(static_cast<uint32_t>(price), 0);
             info.quantity = remaining;
-            info.side = 0;
             info.participant_id = participant_id;
             info.next_id = NULL_ORDER;
 
@@ -189,9 +188,8 @@ void OrderBook::addOrder(uint64_t id, char side, uint64_t price, uint32_t quanti
         if (remaining > 0 && type == OrderType::GTC)
         {
             OrderInfo &info = order_lookup[id];
-            info.price = static_cast<uint32_t>(price);
+            info.set_price_side(static_cast<uint32_t>(price), 1);
             info.quantity = remaining;
-            info.side = 1;
             info.participant_id = participant_id;
             info.next_id = NULL_ORDER;
 
@@ -221,7 +219,7 @@ void OrderBook::handleCancel(uint64_t id)
         return;
 
     // Dispatch via Table (Zero branches, 100% constant time resolving inside template)
-    uint8_t side_var = order_lookup[id].side;
+    uint8_t side_var = order_lookup[id].get_side();
     (this->*cancel_dispatch[side_var & 1])(id);
 }
 

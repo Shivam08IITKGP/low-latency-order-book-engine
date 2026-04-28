@@ -47,6 +47,13 @@ int main(int argc, char* argv[])
     fstat(fd, &st);
     size_t file_size = st.st_size;
 
+    // market_data.bin is memory mapped to file memory
+    // the entire data stream into the process's virtual address space
+    // mmap returns data in void* pointer, so we static_cast it to char* pointer
+    // PROT_READ -> Read only
+    // MAP_PRIVATE -> Private copy of data
+    // fd -> File descriptor
+    // 0 -> Offset
     char* file_memory = static_cast<char*>(mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0));
     if (file_memory == MAP_FAILED) { perror("mmap"); return 1; }
 
@@ -78,6 +85,10 @@ int main(int argc, char* argv[])
 
     std::cout << "Starting benchmark (" << totalMessages << " messages)...\n";
     uint64_t totalStart = rdtsc_start_full();
+    // This contains CPUID wall i.e. CPU Identification
+    // strictly serializes the instructions
+    // Slow, as it fetches info about CPU
+
     startNetworkTraffic.store(true, std::memory_order_release);
 
     size_t processed = 0;
@@ -85,6 +96,8 @@ int main(int argc, char* argv[])
         PacketView view;
         if (inputQueue.pop(view)) {
             uint64_t ts_start = rdtsc_start();
+            // This rdtsc, contains load fence (LDFENCE)
+            // 
             __builtin_prefetch(view.payload, 0 /* read-only */, 3 /* highest urgency */);
             
             const auto* msg = reinterpret_cast<const OrderMessage*>(view.payload);

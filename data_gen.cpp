@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
     std::cout << "Generating " << count << " messages...\n";
 
     for (uint32_t i = 0; i < count; i++) {
-        StreamHeader h = {sizeof(OrderMessage), i, 0};
+        StreamHeader h = {sizeof(OrderMessage), i, 'N', 0};
         
         char side = (i % 2 == 0) ? 'B' : 'S';
         
@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
             price = (side == 'B') ? 5010 : 4990;
         }
 
-        OrderMessage o = {'N', static_cast<uint64_t>(i + 1), side, 100, price};
+        OrderMessage o = {static_cast<uint64_t>(i + 1), price, 100, 'N', side, {0, 0}};
         outfile.write(reinterpret_cast<char*>(&h), sizeof(h));
         outfile.write(reinterpret_cast<char*>(&o), sizeof(o));
     }
